@@ -25,7 +25,7 @@ from collections import Counter
 try:
     from rule_based_scorer import evaluate_resume
 except ImportError:
-    from .rule_based_scorer import evaluate_resume  # fallback for some environments
+    from rule_based_scorer import evaluate_resume  # fallback for some environments
 
 # =========================
 # ===== VERSION STAMP =====
