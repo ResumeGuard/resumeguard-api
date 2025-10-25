@@ -23,7 +23,7 @@ from typing import Dict, Any, List, Optional, Literal, Tuple
 import re, math, calendar, hashlib
 from collections import Counter
 
-from app.services.rule_based_scorer import evaluate_resume
+from rule_based_scorer import evaluate_resume
 
 # =========================
 # ===== VERSION STAMP =====
