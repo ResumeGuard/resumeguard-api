@@ -22,7 +22,6 @@ from datetime import date, timedelta, datetime
 from typing import Dict, Any, List, Optional, Literal, Tuple
 import re, math, calendar, hashlib
 from collections import Counter
-
 from rule_based_scorer import evaluate_resume
 
 # =========================
