@@ -23,6 +23,8 @@ from typing import Dict, Any, List, Optional, Literal, Tuple
 import re, math, calendar, hashlib
 from collections import Counter
 
+from app.services.rule_based_scorer import evaluate_resume
+
 # =========================
 # ===== VERSION STAMP =====
 # =========================
@@ -917,3 +919,35 @@ def score_authenticity(req: AuthenticityRequest, x_api_key: str | None = Header(
 
     CACHE[cache_key] = result
     return result
+@app.post("/score/rule")
+def score_rule_based():
+    """
+    Test endpoint for rule-based scoring with simulated flags.
+    Replace hardcoded flags with extractor logic later.
+    """
+    flags = {
+        "repeated_24mo_roles": True,
+        "future_dated_roles": False,
+        "implausible_continuity": True,
+        "tools_predate_availability": False,
+        "tool_count_excessive": True,
+        "tools_unrelated": True,
+        "tools_not_used_in_context": False,
+        "buzzword_count_high": True,
+        "repetitive_structure": False,
+        "perfect_sentence_tone": True,
+        "linkedin_missing": True,
+        "voip_phone_number": False,
+        "resume_farm_email": False,
+        "specific_metrics_present": True,
+        "realistic_tech_usage": True,
+        "generic_bullet_points": False,
+        "no_tangible_impact": False,
+        "vague_education": False,
+        "phone_location_mismatch": False,
+        "education_timeline_verified": True
+    }
+
+    result = evaluate_resume(flags, verbose=True)
+    return result
+
