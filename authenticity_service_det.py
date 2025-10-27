@@ -691,6 +691,8 @@ def analyze_title_progression(roles_in: List[Dict[str,Any]], as_of: date, domain
 
 from fastapi import FastAPI, Header, HTTPException
 from pydantic import BaseModel
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import JSONResponse
 import os
 
 # ===============================
@@ -699,18 +701,23 @@ import os
 # The key is read from the environment variable RG_API_KEY (set in Railway)
 API_KEY = os.getenv("RG_API_KEY", "")
 
+# Define your FastAPI app
 app = FastAPI(title="Resume Authenticity Core-4 (Deterministic)", version=VERSIONS["core"])
 
-from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.responses import JSONResponse
-import os
+# ===============================
+# === HEALTH CHECK ENDPOINT ====
+# ===============================
+@app.get("/health")
+def health_check():
+    return {"status": "ok", "message": "ResumeGuard API is running"}
 
-API_KEY = os.getenv("RG_API_KEY", "")
-
+# ===============================
+# === SECURITY MIDDLEWARE ====
+# ===============================
 class APIKeyMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request, call_next):
         # Allow docs and OpenAPI schema to load without a key
-        if request.url.path in ("/docs", "/openapi.json", "/redoc"):
+        if request.url.path in ("/docs", "/openapi.json", "/redoc", "/health"):
             return await call_next(request)
         # Enforce key on all other routes
         if API_KEY and request.headers.get("x-api-key") != API_KEY:
@@ -718,14 +725,6 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
         return await call_next(request)
 
 app.add_middleware(APIKeyMiddleware)
-
-
-from fastapi import Header, HTTPException
-import os
-
-# Simple API key from environment (e.g., RG_API_KEY on Railway)
-API_KEY = os.getenv("RG_API_KEY", "")
-
 
 # ----- Request models -----
 class CadenceRequest(BaseModel):
