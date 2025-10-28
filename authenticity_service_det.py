@@ -949,11 +949,14 @@ def score_rule_based():
     result = evaluate_resume(flags, verbose=True)
     return result
 @app.post("/score/enhanced")
-def score_enhanced(req: AuthenticityRequest):
+def score_enhanced(req: AuthenticityRequest, x_api_key: str | None = Header(None)):
     """
     Enhanced Tier 1 rule-based authenticity check.
     Focuses on ChatGPT tells and fabrication patterns.
     """
+    if API_KEY and x_api_key != API_KEY:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    
     asof = parse_as_of(req.as_of_date)
     canon = canonicalize(req.resume_text)
     
