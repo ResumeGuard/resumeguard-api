@@ -838,10 +838,16 @@ def evaluate_resume(flags: dict, verbose: bool = False) -> dict:
     final_score = base_score - deductions_total + detail_score + edu_loc_score
     final_score = max(min(final_score, 100), 0)
 
-    if verbose:
-        return {
-            "final_score": final_score,
-            "deductions_total": deductions_total,
-            "breakdown": log
-        }
-    return {"final_score": final_score}
+    # --- Realism curve and soft-cap shaping ---
+    # Slight damping above 90 to make 100 nearly impossible
+    if final_score >= 90:
+        # Apply nonlinear taper: the higher you go, the smaller each extra point
+        realism_factor = 0.9 - ((final_score - 90) * 0.015)
+        final_score = 90 + (final_score - 90) * realism_factor
+
+    # Extra nudge down if grammar is unnaturally perfect (AI-polished)
+    if perfect_grammar.get("is_too_perfect", False) and final_score > 92:
+        final_score -= 2
+
+    # Keep in deterministic integer space
+    final_score = round(final_score)
