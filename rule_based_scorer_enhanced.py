@@ -645,7 +645,7 @@ def evaluate_resume_enhanced(resume_text: str, roles: Optional[List[Dict]] = Non
         bonuses.append(("authenticity", "Contains baseline → endpoint metrics", +5))
     
     # Has specific project context
-if lacks_context.get("has_project_names", False):
+    if lacks_context.get("has_project_names", False):
     authenticity_bonus += 3
     bonuses.append((
         "authenticity",
