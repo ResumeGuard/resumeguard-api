@@ -646,12 +646,12 @@ def evaluate_resume_enhanced(resume_text: str, roles: Optional[List[Dict]] = Non
     
     # Has specific project context
     if lacks_context.get("has_project_names", False):
-    authenticity_bonus += 3
-    bonuses.append((
-        "authenticity",
-        "Names specific projects/products",
-        +3
-    ))
+        authenticity_bonus += 3
+        bonuses.append((
+            "authenticity",
+            "Names specific projects/products",
+            +3
+        ))
     
     # Has casual/natural language
     if perfect_grammar["has_casual_language"]:
