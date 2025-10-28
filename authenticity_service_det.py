@@ -23,7 +23,7 @@ from typing import Dict, Any, List, Optional, Literal, Tuple
 import re, math, calendar, hashlib
 from collections import Counter
 from rule_based_scorer import evaluate_resume
-
+from rule_based_scorer_enhanced import evaluate_resume_enhanced
 # =========================
 # ===== VERSION STAMP =====
 # =========================
@@ -948,4 +948,42 @@ def score_rule_based():
 
     result = evaluate_resume(flags, verbose=True)
     return result
-
+@app.post("/score/enhanced")
+def score_enhanced(req: AuthenticityRequest):
+    """
+    Enhanced Tier 1 rule-based authenticity check.
+    Focuses on ChatGPT tells and fabrication patterns.
+    """
+    asof = parse_as_of(req.as_of_date)
+    canon = canonicalize(req.resume_text)
+    
+    # Convert roles for enhanced scorer
+    roles = []
+    for r in req.roles_for_timeline:
+        roles.append({
+            "title": r.title,
+            "company": r.company or "",
+            "start": r.start,
+            "end": r.end,
+            "description": r.description or ""
+        })
+    
+    # Run enhanced evaluation
+    result = evaluate_resume_enhanced(
+        resume_text=canon,
+        roles=roles,
+        verbose=True
+    )
+    
+    return {
+        **result,
+        "determinism": {
+            "as_of_date": asof.isoformat(),
+            "content_hash": sha256_hex(canon),
+            "cached": False
+        },
+        "scoring_version": {
+            "tier1_enhanced": "v1.0",
+            "ruleset": "chatgpt_fabrication_v1"
+        }
+    }
