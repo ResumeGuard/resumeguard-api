@@ -645,9 +645,13 @@ def evaluate_resume_enhanced(resume_text: str, roles: Optional[List[Dict]] = Non
         bonuses.append(("authenticity", "Contains baseline → endpoint metrics", +5))
     
     # Has specific project context
-    if lacks_context["has_project_names"]:
-        authenticity_bonus += 3
-        bonuses.append(("authenticity", "Names specific projects/products", +3))
+if lacks_context.get("has_project_names", False):
+    authenticity_bonus += 3
+    bonuses.append((
+        "authenticity",
+        "Names specific projects/products",
+        +3
+    ))
     
     # Has casual/natural language
     if perfect_grammar["has_casual_language"]:
