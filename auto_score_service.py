@@ -232,9 +232,18 @@ def extract_text_metrics(text: str) -> dict:
 # FASTAPI ENDPOINT
 # ======================================================================
 
+from fastapi import Header, HTTPException
+import os
+
+API_KEY = os.getenv("API_KEY", "resume-guard-demo-key")
+
 @app.post("/score_auto")
-async def score_auto(file: UploadFile = File(...)):
+async def score_auto(file: UploadFile = File(...), x_api_key: str = Header(None)):
     """Upload a resume (PDF, DOCX, or TXT) and get authenticity scores."""
+    # ✅ Simple API key check
+    if x_api_key != API_KEY:
+        raise HTTPException(status_code=403, detail="Forbidden: Invalid or missing API key")
+
     try:
         with tempfile.NamedTemporaryFile(delete=False, suffix=Path(file.filename).suffix) as tmp:
             tmp.write(await file.read())
@@ -253,3 +262,4 @@ async def score_auto(file: UploadFile = File(...)):
 
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
+
