@@ -234,27 +234,38 @@ def extract_text_metrics(text: str) -> dict:
 
 from fastapi import Header, HTTPException
 import os
+import tempfile
+import re
+from pathlib import Path
+from fastapi.responses import JSONResponse
+from fastapi import UploadFile, File
 
-API_KEY = os.getenv("API_KEY", "resume-guard-demo-key")
+# ✅ Load the correct environment variable from Railway
+API_KEY = os.getenv("RG_API_KEY", "resume-guard-demo-key")
 
 @app.post("/score_auto")
 async def score_auto(file: UploadFile = File(...), x_api_key: str = Header(None)):
     """Upload a resume (PDF, DOCX, or TXT) and get authenticity scores."""
-    # ✅ Simple API key check
+    
+    # ✅ Simple API key validation
     if x_api_key != API_KEY:
         raise HTTPException(status_code=403, detail="Forbidden: Invalid or missing API key")
 
     try:
+        # Save uploaded file temporarily
         with tempfile.NamedTemporaryFile(delete=False, suffix=Path(file.filename).suffix) as tmp:
             tmp.write(await file.read())
             tmp_path = Path(tmp.name)
 
+        # Extract text and signals
         text = extract_text_from_file(tmp_path)
         signals = extract_text_metrics(text)
 
+        # Estimate career timeline duration
         years = re.findall(r"20\d{2}", text)
         tenure_est = max(1, min((max(map(int, years)) - min(map(int, years))) if len(years) >= 2 else 5, 25))
 
+        # Evaluate using your scoring engine
         result = evaluate_resume(file.filename, signals, tenure_years=tenure_est, logical_progression=True)
 
         os.remove(tmp_path)
@@ -262,4 +273,5 @@ async def score_auto(file: UploadFile = File(...), x_api_key: str = Header(None)
 
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
+
 
