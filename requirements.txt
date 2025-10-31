@@ -1,6 +1,6 @@
-fastapi
-uvicorn
-pdfminer.six
-docx2txt
-scikit-learn
-python-multipart
+fastapi==0.115.0
+uvicorn==0.30.1
+pdfminer.six==20231228
+docx2txt==0.8
+scikit-learn==1.5.2
+python-multipart==0.0.9
