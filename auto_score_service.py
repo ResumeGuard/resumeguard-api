@@ -229,7 +229,7 @@ def extract_text_metrics(text: str) -> dict:
 
 
 # ======================================================================
-# FASTAPI ENDPOINT
+# FASTAPI ENDPOINTS
 # ======================================================================
 
 from fastapi import Header, HTTPException
@@ -243,6 +243,9 @@ from fastapi import UploadFile, File
 # ✅ Load the correct environment variable from Railway
 API_KEY = os.getenv("RG_API_KEY", "resume-guard-demo-key")
 
+# ----------------------------------------------------------------------
+# /score_auto — Authenticity Scoring
+# ----------------------------------------------------------------------
 @app.post("/score_auto")
 async def score_auto(file: UploadFile = File(...), x_api_key: str = Header(None)):
     """Upload a resume (PDF, DOCX, or TXT) and get authenticity scores."""
@@ -274,4 +277,62 @@ async def score_auto(file: UploadFile = File(...), x_api_key: str = Header(None)
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
 
+
+# ----------------------------------------------------------------------
+# 🆕 /score_match — Resume + Job Description Fit Scoring
+# ----------------------------------------------------------------------
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
+
+@app.post("/score_match")
+async def score_match(
+    file: UploadFile = File(...),
+    job_description: str = File(...),
+    x_api_key: str = Header(None)
+):
+    """Upload a resume + job description to get authenticity and JD-fit scores."""
+    
+    # ✅ Simple API key validation
+    if x_api_key != API_KEY:
+        raise HTTPException(status_code=403, detail="Forbidden: Invalid or missing API key")
+
+    try:
+        # --- Save & extract resume text ---
+        with tempfile.NamedTemporaryFile(delete=False, suffix=Path(file.filename).suffix) as tmp:
+            tmp.write(await file.read())
+            tmp_path = Path(tmp.name)
+        resume_text = extract_text_from_file(tmp_path)
+        os.remove(tmp_path)
+
+        # --- Authenticity scoring (reuse existing logic) ---
+        signals = extract_text_metrics(resume_text)
+        years = re.findall(r"20\d{2}", resume_text)
+        tenure_est = max(1, min((max(map(int, years)) - min(map(int, years))) if len(years) >= 2 else 5, 25))
+        authenticity_result = evaluate_resume(file.filename, signals, tenure_years=tenure_est)
+
+        # --- JD-fit scoring ---
+        jd_text = job_description
+        tfidf = TfidfVectorizer().fit_transform([resume_text, jd_text])
+        jd_fit_score = int(cosine_similarity(tfidf[0:1], tfidf[1:2])[0][0] * 100)
+
+        # --- Merge results ---
+        combined = (authenticity_result.legitimacy_score + jd_fit_score) // 2
+        verdict = (
+            "✅ Strong Fit & Authentic" if combined >= 85 else
+            "⚠️ Partial Fit / Review" if combined >= 60 else
+            "❌ Weak Fit or Questionable"
+        )
+
+        return JSONResponse({
+            "candidate": authenticity_result.candidate,
+            "authenticity_score": authenticity_result.legitimacy_score,
+            "jd_fit_score": jd_fit_score,
+            "combined_score": combined,
+            "verdict": verdict,
+            "strengths": authenticity_result.strengths,
+            "red_flags": authenticity_result.red_flags
+        })
+
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
 
