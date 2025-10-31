@@ -1,5 +1,6 @@
 from fastapi import FastAPI, UploadFile, File
 from fastapi.responses import JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
 import tempfile
 import os
 import re
@@ -7,12 +8,19 @@ from pathlib import Path
 from dataclasses import dataclass
 from typing import List, Dict
 from statistics import mean
-
 # --- Optional parsers ---
 import docx2txt
 from pdfminer.high_level import extract_text as pdf_extract_text
 
 app = FastAPI(title="ResumeGuard Auto-Scorer API", version="1.0")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # ======================================================================
 # CORE SCORER (UnifiedResumeScorerV2)
