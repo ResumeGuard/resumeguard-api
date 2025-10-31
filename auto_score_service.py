@@ -279,7 +279,7 @@ async def score_auto(file: UploadFile = File(...), x_api_key: str = Header(None)
 
 
 # ----------------------------------------------------------------------
-# 🆕 /score_match — Resume + Job Description Fit Scoring
+# 🆕 /score_match — Resume + Job Description Fit Scoring (Flexible Input)
 # ----------------------------------------------------------------------
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
@@ -287,11 +287,15 @@ from sklearn.metrics.pairwise import cosine_similarity
 @app.post("/score_match")
 async def score_match(
     file: UploadFile = File(...),
-    job_description: str = File(...),
+    jd_file: UploadFile | None = File(None),
+    jd_text: str | None = None,
     x_api_key: str = Header(None)
 ):
-    """Upload a resume + job description to get authenticity and JD-fit scores."""
-    
+    """
+    Upload a resume + job description (file OR pasted text)
+    to get authenticity and JD-fit scores.
+    """
+
     # ✅ Simple API key validation
     if x_api_key != API_KEY:
         raise HTTPException(status_code=403, detail="Forbidden: Invalid or missing API key")
@@ -310,9 +314,21 @@ async def score_match(
         tenure_est = max(1, min((max(map(int, years)) - min(map(int, years))) if len(years) >= 2 else 5, 25))
         authenticity_result = evaluate_resume(file.filename, signals, tenure_years=tenure_est)
 
+        # --- Handle JD input ---
+        if jd_file:
+            with tempfile.NamedTemporaryFile(delete=False, suffix=Path(jd_file.filename).suffix) as tmp_jd:
+                tmp_jd.write(await jd_file.read())
+                tmp_jd_path = Path(tmp_jd.name)
+            jd_text_extracted = extract_text_from_file(tmp_jd_path)
+            os.remove(tmp_jd_path)
+            jd_text_final = jd_text_extracted
+        elif jd_text:
+            jd_text_final = jd_text
+        else:
+            raise HTTPException(status_code=400, detail="Must provide a job description file or pasted text.")
+
         # --- JD-fit scoring ---
-        jd_text = job_description
-        tfidf = TfidfVectorizer().fit_transform([resume_text, jd_text])
+        tfidf = TfidfVectorizer().fit_transform([resume_text, jd_text_final])
         jd_fit_score = int(cosine_similarity(tfidf[0:1], tfidf[1:2])[0][0] * 100)
 
         # --- Merge results ---
@@ -335,4 +351,3 @@ async def score_match(
 
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
-
