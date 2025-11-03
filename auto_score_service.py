@@ -1,18 +1,19 @@
-from fastapi import FastAPI, UploadFile, File
+from fastapi import FastAPI, UploadFile, File, Header, HTTPException
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 import tempfile
 import os
 import re
 from pathlib import Path
-from dataclasses import dataclass
-from typing import List, Dict
-from statistics import mean
+from dataclasses import dataclass, asdict
+from typing import List, Dict, Any, Optional, Tuple
+from collections import Counter
+
 # --- Optional parsers ---
 import docx2txt
 from pdfminer.high_level import extract_text as pdf_extract_text
 
-app = FastAPI(title="ResumeGuard Auto-Scorer API", version="1.0")
+app = FastAPI(title="ResumeGuard V2 API", version="2.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -23,174 +24,430 @@ app.add_middleware(
 )
 
 # ======================================================================
-# CORE SCORER (UnifiedResumeScorerV2)
+# ELITE AUTHENTICITY ENGINE V2
 # ======================================================================
 
 @dataclass
-class EvaluationResult:
-    candidate: str
-    legitimacy_score: int
-    authenticity: int
-    technical_fit: int
-    context_alignment: int
-    noise_control: int
-    timeline_realism: int
-    strengths: List[str]
-    red_flags: List[str]
+class ResumeEvaluation:
+    """Structure for evaluation results"""
+    name: str
+    trust_score: int
     verdict: str
+    recommended_action: str
+    red_flags: List[str]
+    authenticity_markers: List[str]
+    has_problem_specificity: bool
+    does_unsexy_work: bool
+    screening_tier: str
+    confidence: float
 
-
-class UnifiedResumeScorerV2:
-    def __init__(self, candidate_name: str):
-        self.name = candidate_name
-        self.category_scores: Dict[str, int] = {}
-        self.strengths: List[str] = []
-        self.red_flags: List[str] = []
-
-    def score_authenticity(self, cadence_realistic: bool, project_detail: bool, tool_scope_realistic: bool):
-        score = 0
-        if cadence_realistic:
-            score += 12
-            self.strengths.append("Natural cadence and human sentence rhythm.")
-        else:
-            self.red_flags.append("Monotone or AI-templated writing cadence.")
-        if project_detail:
-            score += 8
-            self.strengths.append("Includes concrete project-level detail.")
-        else:
-            self.red_flags.append("Project narratives lack clarity or specificity.")
-        if tool_scope_realistic:
-            score += 5
-        else:
-            self.red_flags.append("Tool list appears inflated or implausible.")
-        self.category_scores["Authenticity"] = min(score, 25)
-
-    def score_technical_fit(self, stack_alignment: bool, certs_relevant: bool, domain_experience: bool):
-        score = 0
-        if stack_alignment:
-            score += 10
-            self.strengths.append("Tech stack aligns with role responsibilities.")
-        else:
-            self.red_flags.append("Stack misalignment between role and tools.")
-        if certs_relevant:
-            score += 8
-            self.strengths.append("Certifications reinforce technical credibility.")
-        if domain_experience:
-            score += 7
-            self.strengths.append("Domain experience supports claimed expertise.")
-        self.category_scores["Technical Fit"] = min(score, 25)
-
-    def score_context_alignment(self, industry_relevant: bool, project_scale_clear: bool):
-        score = 0
-        if industry_relevant:
-            score += 10
-        else:
-            self.red_flags.append("Industry context unclear or inconsistent.")
-        if project_scale_clear:
-            score += 5
-            self.strengths.append("Project scale and environment clearly described.")
-        self.category_scores["Context Alignment"] = min(score, 25)
-
-    def score_noise_control(self, buzzword_stuffing: bool, duplicate_verbs: bool, tool_dump: bool):
-        score = 25
-        if buzzword_stuffing:
-            score -= 5
-            self.red_flags.append("Buzzword stuffing detected.")
-        if duplicate_verbs:
-            score -= 5
-            self.red_flags.append("Repetitive phrasing or redundant bullets.")
-        if tool_dump:
-            score -= 5
-            self.red_flags.append("Tool list without context or application.")
-        self.category_scores["Noise Control"] = max(0, score)
-
-    def score_timeline_realism(self, tenure_years: int, logical_progression: bool, unexplained_gaps: bool):
-        score = 0
-        if tenure_years >= 10:
-            score += 10
-        elif tenure_years >= 5:
-            score += 8
-        elif tenure_years >= 3:
-            score += 6
-        else:
-            score += 4
-
-        if logical_progression:
-            score += 5
-            self.strengths.append("Career shows logical progression across roles.")
-        else:
-            self.red_flags.append("Career trajectory unclear or erratic.")
-
-        if unexplained_gaps:
-            score -= 5
-            self.red_flags.append("Unexplained gaps detected in timeline.")
-
-        self.category_scores["Timeline Realism"] = max(0, min(score, 15))
-
-    def finalize(self) -> EvaluationResult:
-        total = sum(self.category_scores.values())
-        if total >= 90:
-            verdict = "✅ Highly Credible Resume"
-        elif total >= 80:
-            verdict = "✅ Credible With Minor Flags"
-        elif total >= 70:
-            verdict = "⚠️ Questionable – Verify in Screening"
-        else:
-            verdict = "❌ High Risk – Possibly Fabricated"
-        return EvaluationResult(
-            candidate=self.name,
-            legitimacy_score=total,
-            authenticity=self.category_scores.get("Authenticity", 0),
-            technical_fit=self.category_scores.get("Technical Fit", 0),
-            context_alignment=self.category_scores.get("Context Alignment", 0),
-            noise_control=self.category_scores.get("Noise Control", 0),
-            timeline_realism=self.category_scores.get("Timeline Realism", 0),
-            strengths=self.strengths,
-            red_flags=self.red_flags,
-            verdict=verdict
+class EliteAuthenticityEngine:
+    """
+    Resume Authenticity Engine v2.0
+    Built to recognize that elite engineers use AI for polish,
+    but fabricators can't fake actual experience.
+    
+    Trust Score Tiers:
+    95-100: Elite Verified - Direct to hiring manager
+    85-94:  Fast-Track - Skip phone screen
+    75-84:  Authentic - Normal process
+    60-74:  Needs Validation - Tech test first
+    45-59:  High Scrutiny - Only if desperate
+    <45:    Probable Fabrication - Reject
+    """
+    
+    def __init__(self):
+        # Initialize pattern databases
+        self._initialize_problem_markers()
+        self._initialize_unsexy_work_markers()
+        self._initialize_tech_timelines()
+        self._initialize_chatgpt_markers()
+        
+    def _initialize_problem_markers(self):
+        """Real problems that engineers actually face"""
+        self.PROBLEM_MARKERS = [
+            # Memory/Resource issues
+            r"OOM|out of memory|heap|memory leak|garbage collection",
+            r"CPU spike|high load|resource exhaustion",
+            r"disk full|inode|file descriptor|ulimit",
+            
+            # Concurrency/Timing
+            r"race condition|deadlock|lock contention|mutex",
+            r"timeout|connection refused|ECONNREFUSED|socket hang",
+            r"cold start|warm[- ]up|latency spike|performance degradation",
+            
+            # Version/Dependency
+            r"version conflict|dependency hell|incompatible|breaking change",
+            r"deprecated|end[- ]of[- ]life|EOL|unsupported",
+            
+            # State/Data issues
+            r"state locking|state file|tfstate|lock file|corrupted state",
+            r"data corruption|data loss|backup restore|recovery",
+            r"migration failure|schema mismatch|database lock",
+            
+            # Security/Auth
+            r"RBAC|permission denied|403|401|unauthorized|forbidden",
+            r"certificate expired|SSL|TLS handshake|cert renewal",
+            r"token expired|refresh token|CORS|CSP violation",
+            
+            # Network/Distributed
+            r"split brain|network partition|node failure|quorum",
+            r"DNS resolution|NXDOMAIN|stale cache|TTL",
+            r"rate limit|throttl|429|quota exceeded",
+            
+            # Development/Deployment
+            r"failed \d+ times|took \d+ attempts|after several",
+            r"rolled back|reverted|downgraded|rollback",
+            r"bug in|issue with|problem with|quirk in",
+            r"error:|exception:|failed to|couldn't|wouldn't",
+            r"broke|broken|breaking|failure",
+            
+            # Specific error messages
+            r"segfault|core dump|kernel panic|blue screen",
+            r"null pointer|undefined|NaN|type error",
+            r"connection pool|thread pool|exhausted",
+        ]
+        
+    def _initialize_unsexy_work_markers(self):
+        """Boring work that real engineers actually do"""
+        self.UNSEXY_WORK = [
+            # Maintenance
+            r"legacy|maintained?|upgraded?|patch|hotfix|bugfix",
+            r"technical debt|refactor|cleanup|deprecated|EOL",
+            r"backwards? compatibility|migration|upgrade path",
+            
+            # Operations
+            r"on[- ]?call|pager|incident|outage|post[- ]?mortem",
+            r"runbook|playbook|SOP|standard operating",
+            r"monitoring|alerting|observability|logging",
+            r"backup|restore|disaster recovery|DR test|BCP",
+            
+            # Documentation
+            r"documentation|documented|readme|wiki|confluence",
+            r"onboarding guide|knowledge transfer|handoff",
+            
+            # Compliance/Security
+            r"compliance|audit|SOC\s?2|HIPAA|PCI|GDPR",
+            r"vulnerability|CVE|security patch|penetration test",
+            r"TLS\s?1\.[0-2]|SSL upgrade|cipher suite",
+            
+            # Old/Boring Tech
+            r"VB\.NET|COBOL|mainframe|AS/?400|fortran",
+            r"batch job|cron|scheduled task|ETL",
+            r"SOAP|XML|XSLT|WCF|web service",
+            r"stored procedure|trigger|cursor|SQL Server \d{4}",
+            
+            # Unglamorous tasks
+            r"log rotation|disk cleanup|archive|purge",
+            r"user support|help desk|ticket|escalation",
+            r"vendor management|license|procurement",
+        ]
+        
+    def _initialize_tech_timelines(self):
+        """Technology release dates for impossibility checking"""
+        self.TECH_TIMELINES = {
+            "kubernetes": 2014,
+            "docker": 2013,
+            "terraform": 2014,
+            "react": 2013,
+            "angular": 2010,
+            "vue": 2014,
+            "golang": 2009,
+            "rust": 2010,
+            "aws lambda": 2014,
+            "azure functions": 2016,
+            "github actions": 2019,
+            "chatgpt": 2022,
+            "graphql": 2015,
+            "kafka": 2011,
+            "redis": 2009,
+            "mongodb": 2009,
+            "elasticsearch": 2010,
+            "prometheus": 2012,
+            "grafana": 2014,
+            "istio": 2017,
+            "helm": 2016,
+            "argo cd": 2018,
+            "github copilot": 2021,
+        }
+        
+    def _initialize_chatgpt_markers(self):
+        """ChatGPT signature patterns (not necessarily bad)"""
+        self.CHATGPT_VERBS = {
+            "high_confidence": ["spearheaded", "orchestrated", "championed"],
+            "medium_confidence": ["leveraged", "facilitated", "pioneered", "synergized"],
+            "low_confidence": ["implemented", "developed", "managed", "led"]
+        }
+        
+        self.BUZZWORD_PATTERNS = [
+            r"cutting[- ]edge",
+            r"best[- ]in[- ]class",
+            r"world[- ]class",
+            r"revolutionary",
+            r"transform(?:ative|ational)",
+            r"seamless(?:ly)?",
+            r"robust solution",
+            r"innovative approach",
+            r"paradigm shift",
+        ]
+    
+    def evaluate_resume(self, 
+                       resume_text: str, 
+                       candidate_name: str = "Unknown",
+                       roles: Optional[List[Dict]] = None) -> ResumeEvaluation:
+        """
+        Main evaluation function.
+        Returns a ResumeEvaluation object with trust score and recommendations.
+        """
+        
+        # Start with base score
+        trust_score = 70
+        red_flags = []
+        authenticity_markers = []
+        
+        # Clean text
+        text_lower = resume_text.lower()
+        
+        # Layer 1: Check for impossibilities (hard cap at 45)
+        impossibilities = self._check_impossibilities(resume_text, roles)
+        if impossibilities["found"]:
+            trust_score = min(45, trust_score)
+            red_flags.extend(impossibilities["flags"])
+        
+        # Layer 2: Technical Coherence
+        coherence = self._evaluate_technical_coherence(resume_text, roles)
+        trust_score += coherence["score"]
+        if coherence["markers"]:
+            authenticity_markers.extend(coherence["markers"])
+        if coherence["flags"]:
+            red_flags.extend(coherence["flags"])
+        
+        # Layer 3: Problem Specificity Index (GAME CHANGER)
+        psi = self._calculate_problem_specificity(resume_text)
+        if psi["score"] > 0:
+            trust_score += psi["score"]
+            authenticity_markers.append(
+                f"Problem Specificity: +{psi['score']} ({psi['count']} real problems mentioned)"
+            )
+        
+        # Layer 4: Unsexy Work Bonus
+        unsexy = self._calculate_unsexy_work_bonus(resume_text)
+        if unsexy["score"] > 0:
+            trust_score += unsexy["score"]
+            authenticity_markers.append(
+                f"Unsexy Work: +{unsexy['score']} (does real maintenance/ops work)"
+            )
+        
+        # Layer 5: ChatGPT Detection (but don't over-penalize)
+        chatgpt = self._detect_chatgpt_patterns(resume_text)
+        if chatgpt["high_count"] >= 2:
+            if coherence["score"] > 10:
+                authenticity_markers.append("AI-polished but technically sound (no penalty)")
+            else:
+                trust_score -= 10
+                red_flags.append(f"Heavy AI generation without depth ({chatgpt['high_count']} high-confidence AI verbs)")
+        
+        # Bonus: Specific version numbers
+        if re.search(r'\d+\.\d+(?:\.\d+)?', resume_text):
+            trust_score += 3
+            authenticity_markers.append("Mentions specific versions")
+        
+        # Bonus: Admits failures
+        if re.search(r'failed|struggled|difficult|took .+ attempts|harder than expected', text_lower):
+            trust_score += 5
+            authenticity_markers.append("Admits struggles/failures")
+        
+        # Final calibration
+        trust_score = max(20, min(100, trust_score))
+        
+        # Determine verdict and action
+        verdict, action, tier = self._determine_verdict(trust_score)
+        
+        # Calculate confidence
+        confidence = self._calculate_confidence(trust_score, len(red_flags), len(authenticity_markers))
+        
+        return ResumeEvaluation(
+            name=candidate_name,
+            trust_score=trust_score,
+            verdict=verdict,
+            recommended_action=action,
+            red_flags=red_flags,
+            authenticity_markers=authenticity_markers,
+            has_problem_specificity=psi["score"] > 0,
+            does_unsexy_work=unsexy["score"] > 0,
+            screening_tier=tier,
+            confidence=confidence
         )
-
-
-def evaluate_resume(candidate_name: str, signals: Dict[str, bool], tenure_years: int,
-                    logical_progression=True, unexplained_gaps=False) -> EvaluationResult:
-    s = UnifiedResumeScorerV2(candidate_name)
-    s.score_authenticity(
-        cadence_realistic=signals.get("cadence_realistic", True),
-        project_detail=signals.get("project_detail", True),
-        tool_scope_realistic=signals.get("tool_scope_realistic", True)
-    )
-    s.score_technical_fit(
-        stack_alignment=signals.get("stack_alignment", True),
-        certs_relevant=signals.get("certs_relevant", True),
-        domain_experience=signals.get("domain_experience", True)
-    )
-    s.score_context_alignment(
-        industry_relevant=signals.get("industry_relevant", True),
-        project_scale_clear=signals.get("project_scale_clear", True)
-    )
-    s.score_noise_control(
-        buzzword_stuffing=signals.get("buzzword_stuffing", False),
-        duplicate_verbs=signals.get("duplicate_verbs", False),
-        tool_dump=signals.get("tool_dump", False)
-    )
-    s.score_timeline_realism(tenure_years, logical_progression, unexplained_gaps)
-    return s.finalize()
+    
+    def _check_impossibilities(self, text: str, roles: Optional[List[Dict]]) -> Dict:
+        """Check for impossible claims like using tools before they existed"""
+        found = False
+        flags = []
+        
+        if not roles:
+            return {"found": found, "flags": flags}
+        
+        text_lower = text.lower()
+        
+        for role in roles:
+            year = None
+            if "start" in role:
+                year_match = re.search(r'(\d{4})', str(role["start"]))
+                if year_match:
+                    year = int(year_match.group(1))
+            
+            if not year:
+                continue
+            
+            role_text = role.get("description", "").lower()
+            for tech, release_year in self.TECH_TIMELINES.items():
+                if tech in role_text and year < release_year:
+                    found = True
+                    flags.append(f"{tech.title()} claimed in {year} (released {release_year})")
+        
+        return {"found": found, "flags": flags}
+    
+    def _evaluate_technical_coherence(self, text: str, roles: Optional[List[Dict]]) -> Dict:
+        """Evaluate if the technical content makes sense"""
+        score = 0
+        markers = []
+        flags = []
+        
+        text_lower = text.lower()
+        
+        # Positive signals
+        if re.search(r'migrated?.{0,20}from.{0,20}to|upgraded?.{0,20}from.{0,20}to|replaced.{0,20}with', text_lower):
+            score += 7
+            markers.append("Shows technical progression")
+        
+        if re.search(r'microservice|event[- ]driven|CQRS|saga pattern|circuit breaker', text_lower, re.I):
+            score += 5
+            markers.append("Mentions real architectural patterns")
+        
+        if re.search(r'CI/?CD|continuous integration|continuous deployment|pipeline', text_lower):
+            score += 3
+            markers.append("DevOps practices mentioned")
+        
+        if re.search(r'constraint|limitation|bottleneck|challenge|trade[- ]off', text_lower):
+            score += 5
+            markers.append("Discusses real constraints")
+        
+        # Negative signals
+        generic_companies = len(re.findall(r'tech solutions?|global systems?|innovative solutions?', text_lower))
+        if generic_companies >= 2:
+            score -= 5
+            flags.append(f"{generic_companies} generic company names")
+        
+        vague_improvements = len(re.findall(r'improved?.{0,10}by \d+%|increased?.{0,10}by \d+%|reduced?.{0,10}by \d+%', text_lower))
+        contextual_improvements = len(re.findall(r'from \d+.{0,10}to \d+|from \$.{0,10}to \$', text_lower))
+        
+        if vague_improvements > 3 and contextual_improvements == 0:
+            score -= 5
+            flags.append(f"{vague_improvements} vague percentage improvements without baselines")
+        
+        return {"score": score, "markers": markers, "flags": flags}
+    
+    def _calculate_problem_specificity(self, text: str) -> Dict:
+        """Real engineers remember what broke"""
+        text_lower = text.lower()
+        problems_found = set()
+        
+        for pattern in self.PROBLEM_MARKERS:
+            if re.search(pattern, text_lower):
+                problems_found.add(pattern.split('|')[0])
+        
+        count = len(problems_found)
+        score = min(20, count * 5)
+        
+        return {"score": score, "count": count, "problems": list(problems_found)}
+    
+    def _calculate_unsexy_work_bonus(self, text: str) -> Dict:
+        """Real engineers do boring work"""
+        text_lower = text.lower()
+        unsexy_found = set()
+        
+        for pattern in self.UNSEXY_WORK:
+            if re.search(pattern, text_lower):
+                unsexy_found.add(pattern.split('|')[0])
+        
+        count = len(unsexy_found)
+        score = min(10, count * 3)
+        
+        return {"score": score, "count": count, "tasks": list(unsexy_found)}
+    
+    def _detect_chatgpt_patterns(self, text: str) -> Dict:
+        """Detect ChatGPT patterns (not always bad)"""
+        text_lower = text.lower()
+        
+        high_count = sum(1 for verb in self.CHATGPT_VERBS["high_confidence"] if verb in text_lower)
+        medium_count = sum(1 for verb in self.CHATGPT_VERBS["medium_confidence"] if verb in text_lower)
+        buzzword_count = sum(1 for pattern in self.BUZZWORD_PATTERNS if re.search(pattern, text_lower))
+        
+        return {
+            "high_count": high_count,
+            "medium_count": medium_count,
+            "buzzword_count": buzzword_count
+        }
+    
+    def _determine_verdict(self, score: int) -> Tuple[str, str, str]:
+        """Determine verdict, action, and tier based on trust score"""
+        
+        if score >= 95:
+            return (
+                "✅ Elite Verified - This person has been in the trenches",
+                "Skip to final interview / Direct to hiring manager",
+                "Elite Tier"
+            )
+        elif score >= 85:
+            return (
+                "✅ Fast-Track Authentic - Highly trusted professional",
+                "Skip phone screen → Technical interview",
+                "Fast-Track Tier"
+            )
+        elif score >= 75:
+            return (
+                "✅ Authentic - Real experience, AI-assisted presentation",
+                "Normal interview process",
+                "Standard Tier"
+            )
+        elif score >= 60:
+            return (
+                "🟡 Needs Validation - Likely real but verify claims",
+                "Technical assessment before phone screen",
+                "Validation Tier"
+            )
+        elif score >= 45:
+            return (
+                "⚠️ High Scrutiny - Multiple red flags",
+                "Only proceed if desperate + rigorous vetting",
+                "High Risk Tier"
+            )
+        else:
+            return (
+                "❌ Probable Fabrication - High risk",
+                "Reject unless critical need + extreme vetting",
+                "Rejection Tier"
+            )
+    
+    def _calculate_confidence(self, score: int, red_flags: int, auth_markers: int) -> float:
+        """Calculate confidence in the assessment"""
+        base_confidence = 0.7
+        
+        if score >= 85:
+            base_confidence += 0.15
+        elif score >= 70:
+            base_confidence += 0.10
+        elif score <= 45:
+            base_confidence += 0.15
+        
+        evidence_factor = min(0.1, (auth_markers + red_flags) * 0.02)
+        
+        return min(0.95, base_confidence + evidence_factor)
 
 
 # ======================================================================
-# TEXT PARSER + SIGNAL DETECTOR
+# TEXT EXTRACTION
 # ======================================================================
-
-BUZZWORDS = {
-    "synergy", "innovative", "results-oriented", "dynamic", "strategic",
-    "cutting-edge", "visionary", "transformative", "impactful"
-}
-TOOL_KEYWORDS = {
-    "aws", "azure", "gcp", "terraform", "kubernetes", "docker", "python",
-    "ansible", "git", "jenkins", "splunk", "prometheus", "grafana",
-    "linux", "windows", "devops", "security", "network"
-}
-
 
 def extract_text_from_file(path: Path) -> str:
     if path.suffix.lower() == ".pdf":
@@ -201,161 +458,55 @@ def extract_text_from_file(path: Path) -> str:
         return path.read_text(encoding="utf-8", errors="ignore")
 
 
-def extract_text_metrics(text: str) -> dict:
-    lines = [l.strip() for l in text.splitlines() if l.strip()]
-    sentences = re.split(r"[.!?]", text)
-    words = re.findall(r"\b\w+\b", text.lower())
-    unique_words = len(set(words))
-    avg_sentence_length = mean([len(s.split()) for s in sentences if len(s.split()) > 2]) if sentences else 0
-
-    cadence_realistic = 8 < avg_sentence_length < 28
-    duplicate_verbs = len(re.findall(r"^\s*(led|managed|implemented|designed|developed|built)\b", text, re.M | re.I)) > 8
-    buzzword_stuffing = sum(w in BUZZWORDS for w in words) > 8
-    tool_dump = len([l for l in lines if len(l.split(",")) > 6]) > 0
-
-    tech_mentions = sum(1 for w in words if w in TOOL_KEYWORDS)
-    tool_scope_realistic = tech_mentions / (unique_words + 1) < 0.12
-    uses_metrics = bool(re.search(r"\d+%|\$\d+|[0-9]+ (users|systems|servers|projects|apps)", text))
-    project_detail = any(k in text.lower() for k in ["project", "migration", "deployment", "architecture", "implementation"])
-    industry_relevant = any(k in text.lower() for k in ["finance", "government", "health", "retail", "manufacturing", "public sector"])
-    certs_relevant = bool(re.search(r"certified|certificate|ck[a|s]|aws|azure|gcp", text, re.I))
-    domain_experience = bool(re.search(r"cloud|devops|security|data|network", text, re.I))
-
-    return {
-        "cadence_realistic": cadence_realistic,
-        "project_detail": project_detail,
-        "tool_scope_realistic": tool_scope_realistic,
-        "stack_alignment": domain_experience,
-        "certs_relevant": certs_relevant,
-        "domain_experience": domain_experience,
-        "industry_relevant": industry_relevant,
-        "project_scale_clear": project_detail and uses_metrics,
-        "buzzword_stuffing": buzzword_stuffing,
-        "duplicate_verbs": duplicate_verbs,
-        "tool_dump": tool_dump
-    }
-
-
 # ======================================================================
 # FASTAPI ENDPOINTS
 # ======================================================================
 
-from fastapi import Header, HTTPException
-import os
-import tempfile
-import re
-from pathlib import Path
-from fastapi.responses import JSONResponse
-from fastapi import UploadFile, File
+API_KEY = os.getenv("RG_API_KEY", "changeme123!!")
 
-# ✅ Load the correct environment variable from Railway
-API_KEY = os.getenv("RG_API_KEY", "resume-guard-demo-key")
-
-# ----------------------------------------------------------------------
-# /score_auto — Authenticity Scoring
-# ----------------------------------------------------------------------
 @app.post("/score_auto")
 async def score_auto(file: UploadFile = File(...), x_api_key: str = Header(None)):
-    """Upload a resume (PDF, DOCX, or TXT) and get authenticity scores."""
+    """Upload a resume and get V2 authenticity analysis"""
     
-    # ✅ Simple API key validation
     if x_api_key != API_KEY:
         raise HTTPException(status_code=403, detail="Forbidden: Invalid or missing API key")
 
     try:
-        # Save uploaded file temporarily
+        # Save uploaded file
         with tempfile.NamedTemporaryFile(delete=False, suffix=Path(file.filename).suffix) as tmp:
             tmp.write(await file.read())
             tmp_path = Path(tmp.name)
 
-        # Extract text and signals
+        # Extract text
         text = extract_text_from_file(tmp_path)
-        signals = extract_text_metrics(text)
-
-        # Estimate career timeline duration
-        years = re.findall(r"20\d{2}", text)
-        tenure_est = max(1, min((max(map(int, years)) - min(map(int, years))) if len(years) >= 2 else 5, 25))
-
-        # Evaluate using your scoring engine
-        result = evaluate_resume(file.filename, signals, tenure_years=tenure_est, logical_progression=True)
-
-        os.remove(tmp_path)
-        return JSONResponse(result.__dict__)
-
-    except Exception as e:
-        return JSONResponse({"error": str(e)}, status_code=500)
-
-
-# ----------------------------------------------------------------------
-# 🆕 /score_match — Resume + Job Description Fit Scoring (Flexible Input)
-# ----------------------------------------------------------------------
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.metrics.pairwise import cosine_similarity
-
-@app.post("/score_match")
-async def score_match(
-    file: UploadFile = File(...),
-    jd_file: UploadFile | None = File(None),
-    jd_text: str | None = None,
-    x_api_key: str = Header(None)
-):
-    """
-    Upload a resume + job description (file OR pasted text)
-    to get authenticity and JD-fit scores.
-    """
-
-    # ✅ Simple API key validation
-    if x_api_key != API_KEY:
-        raise HTTPException(status_code=403, detail="Forbidden: Invalid or missing API key")
-
-    try:
-        # --- Save & extract resume text ---
-        with tempfile.NamedTemporaryFile(delete=False, suffix=Path(file.filename).suffix) as tmp:
-            tmp.write(await file.read())
-            tmp_path = Path(tmp.name)
-        resume_text = extract_text_from_file(tmp_path)
-        os.remove(tmp_path)
-
-        # --- Authenticity scoring (reuse existing logic) ---
-        signals = extract_text_metrics(resume_text)
-        years = re.findall(r"20\d{2}", resume_text)
-        tenure_est = max(1, min((max(map(int, years)) - min(map(int, years))) if len(years) >= 2 else 5, 25))
-        authenticity_result = evaluate_resume(file.filename, signals, tenure_years=tenure_est)
-
-        # --- Handle JD input ---
-        if jd_file:
-            with tempfile.NamedTemporaryFile(delete=False, suffix=Path(jd_file.filename).suffix) as tmp_jd:
-                tmp_jd.write(await jd_file.read())
-                tmp_jd_path = Path(tmp_jd.name)
-            jd_text_extracted = extract_text_from_file(tmp_jd_path)
-            os.remove(tmp_jd_path)
-            jd_text_final = jd_text_extracted
-        elif jd_text:
-            jd_text_final = jd_text
-        else:
-            raise HTTPException(status_code=400, detail="Must provide a job description file or pasted text.")
-
-        # --- JD-fit scoring ---
-        tfidf = TfidfVectorizer().fit_transform([resume_text, jd_text_final])
-        jd_fit_score = int(cosine_similarity(tfidf[0:1], tfidf[1:2])[0][0] * 100)
-
-        # --- Merge results ---
-        combined = (authenticity_result.legitimacy_score + jd_fit_score) // 2
-        verdict = (
-            "✅ Strong Fit & Authentic" if combined >= 85 else
-            "⚠️ Partial Fit / Review" if combined >= 60 else
-            "❌ Weak Fit or Questionable"
+        
+        # Evaluate with V2 engine
+        engine = EliteAuthenticityEngine()
+        result = engine.evaluate_resume(
+            resume_text=text,
+            candidate_name=file.filename
         )
 
-        return JSONResponse({
-            "candidate": authenticity_result.candidate,
-            "authenticity_score": authenticity_result.legitimacy_score,
-            "jd_fit_score": jd_fit_score,
-            "combined_score": combined,
-            "verdict": verdict,
-            "strengths": authenticity_result.strengths,
-            "red_flags": authenticity_result.red_flags
-        })
+        os.remove(tmp_path)
+        
+        # Convert dataclass to dict for JSON response
+        return JSONResponse(asdict(result))
 
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@app.get("/")
+def root():
+    return {
+        "service": "ResumeGuard V2 API",
+        "version": "2.0",
+        "engine": "Elite Authenticity Engine",
+        "features": [
+            "Problem Specificity Index",
+            "Unsexy Work Detection",
+            "Technical Coherence Analysis",
+            "AI-Polish Recognition",
+            "Trust Score Tiers"
+        ]
+    }
