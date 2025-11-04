@@ -1,574 +1,626 @@
+"""
+ResumeGuard Universal Authenticity Engine - CALIBRATED
+Cross-industry resume authenticity scoring with reasonable math
+
+Supports: Tech, Sales, Marketing, Finance, Healthcare, Operations, HR
+"""
+
 import re
 from dataclasses import dataclass
-from typing import Dict, List, Tuple, Optional
-from enum import Enum
-
-# Domain question modules (for tech roles)
-try:
-    from domains.devops import q5_devops
-    from domains.backend_api import q5_backend
-    from domains.iam import q5_iam
-    from domains.data_eng import q5_data
-    DOMAIN_MODULES_AVAILABLE = True
-except ImportError:
-    DOMAIN_MODULES_AVAILABLE = False
+from typing import List, Tuple, Optional
 
 
 @dataclass
 class AuthenticityResult:
-    """Universal result structure for any industry"""
+    """Scoring result with universal industry support"""
     candidate: str
-    star_rating: float
+    raw_score: float
+    star_rating: int
     star_display: str
     tier: str
     verdict: str
-    raw_score: int  # Internal only - not shown to users
     red_flags: List[str]
     authenticity_markers: List[str]
+    has_real_problems: bool
     industry_detected: Optional[str]
     industry_confidence: float
-    has_real_problems: bool
-    ai_probability: str
+    ai_probability: float
     universal_questions: List[str]
-    industry_specific_question: Optional[str]
+    industry_specific_question: str
 
 
 class UniversalAuthenticityEngine:
     """
-    Cross-industry authenticity scoring engine
-    Works for Tech, Sales, Marketing, Finance, Healthcare, Operations, HR, etc.
-    
-    Philosophy: "Guilty until proven innocent" - start at 30, earn your way up
-    Output: 5-star rating system (no half-stars, clean buckets)
+    Cross-industry resume authenticity scoring engine
+    CALIBRATED for reasonable human-centric scoring
     """
     
     def __init__(self):
-        self._initialize_universal_patterns()
-        self._initialize_industry_patterns()
-        self._initialize_universal_questions()
-        
-    def _initialize_universal_patterns(self):
-        """Patterns that work across ALL industries"""
-        
-        # AI/ChatGPT verbs (universal red flags)
-        self.AI_VERBS = {
-            "high_confidence": [
-                "spearheaded", "orchestrated", "championed", "leveraged",
-                "pioneered", "revolutionized", "transformed", "synergized"
+        # Industry detection patterns
+        self.industry_patterns = {
+            "Technology": [
+                r'\b(kubernetes|docker|aws|azure|gcp|terraform|ansible|jenkins|ci/cd|devops|microservices|api|rest|graphql|sql|nosql|python|java|javascript|react|node\.?js|golang|rust|git|agile|scrum)\b',
+                r'\b(cloud|infrastructure|deployment|monitoring|logging|observability|sre|site reliability|backend|frontend|full[- ]?stack)\b',
+                r'\b(software engineer|devops|platform engineer|sre|backend developer|frontend developer|full stack developer)\b'
             ],
-            "medium_confidence": [
-                "facilitated", "optimized", "enhanced", "streamlined",
-                "modernized", "catalyzed"
+            "Sales": [
+                r'\b(quota|pipeline|cold call|outreach|prospecting|closing|bdm|account executive|ae|sdr|bdr|territory|crm|salesforce|hubspot)\b',
+                r'\b(deal|contract|revenue|commission|attainment|forecasting|negotiation|enterprise sales|b2b|saas sales)\b',
+                r'\b(sales development|business development|account manager|sales manager|revenue|hunter)\b'
+            ],
+            "Marketing": [
+                r'\b(campaign|seo|sem|ppc|content marketing|social media|brand|positioning|messaging|gtm|go[- ]?to[- ]?market)\b',
+                r'\b(leads|mql|sql|conversion|funnel|analytics|google analytics|facebook ads|linkedin ads|email marketing|marketing automation)\b',
+                r'\b(marketing manager|digital marketing|growth marketing|demand generation|product marketing|brand manager)\b'
+            ],
+            "Finance": [
+                r'\b(financial modeling|valuation|dcf|lbo|m&a|fp&a|budgeting|forecasting|gaap|ifrs|sox|audit)\b',
+                r'\b(balance sheet|income statement|cash flow|variance analysis|financial analysis|cost accounting|treasury)\b',
+                r'\b(financial analyst|accountant|cpa|controller|finance manager|investment|portfolio)\b'
+            ],
+            "Healthcare": [
+                r'\b(patient|clinical|ehr|emr|epic|cerner|hipaa|medical|nursing|physician|diagnosis|treatment|care plan)\b',
+                r'\b(healthcare|hospital|clinic|medical center|pharmacy|medication|prescription|therapy|rehabilitation)\b',
+                r'\b(nurse|doctor|physician|medical assistant|healthcare administrator|clinical coordinator)\b'
+            ],
+            "Operations": [
+                r'\b(supply chain|logistics|inventory|procurement|vendor management|process improvement|lean|six sigma|warehouse)\b',
+                r'\b(operations|efficiency|productivity|kpi|metrics|sop|standard operating procedure|workflow|automation)\b',
+                r'\b(operations manager|project manager|program manager|logistics coordinator|supply chain analyst)\b'
+            ],
+            "HR": [
+                r'\b(recruiting|talent acquisition|onboarding|performance review|compensation|benefits|hris|workday|adp)\b',
+                r'\b(employee relations|hr policies|compliance|labor law|diversity|dei|culture|retention|turnover)\b',
+                r'\b(hr manager|recruiter|talent|people operations|hr business partner|hr generalist)\b'
             ]
         }
         
-        # Vague metrics without context (universal)
-        self.VAGUE_METRICS_PATTERN = r'(?:improved?|increased?|reduced?|enhanced?|optimized?|boosted?|drove).{0,25}by\s+\d+%'
-        
-        # Generic company names (universal)
-        self.GENERIC_COMPANIES = [
-            "tech solutions", "global systems", "innovative solutions",
-            "consulting group", "technology partners", "digital solutions",
-            "strategic consulting", "enterprise solutions"
+        # Problem specificity patterns (UNIVERSAL across industries)
+        # More flexible patterns to catch real-world metrics
+        self.problem_patterns = [
+            # Reductions/decreases
+            r'reduc(?:ed|ing)\s+(?:\w+\s+){0,4}by\s+\d+\s*%',
+            r'decreas(?:ed|ing)\s+(?:\w+\s+){0,4}by\s+\d+\s*%',
+            r'cut\s+(?:\w+\s+){0,4}by\s+\d+\s*%',
+            r'lowered\s+(?:\w+\s+){0,4}by\s+\d+\s*%',
+            
+            # Increases/improvements
+            r'increas(?:ed|ing)\s+(?:\w+\s+){0,4}by\s+\d+\s*%',
+            r'improv(?:ed|ing)\s+(?:\w+\s+){0,4}by\s+\d+\s*%',
+            r'boost(?:ed|ing)\s+(?:\w+\s+){0,4}by\s+\d+\s*%',
+            r'grew\s+(?:\w+\s+){0,4}by\s+\d+\s*%',
+            r'enhanced\s+(?:\w+\s+){0,4}by\s+\d+\s*%',
+            
+            # Scaling/from-to metrics
+            r'from\s+\d+[%\w]*\s+to\s+\d+[%\w]*',
+            r'scaled?\s+\w+\s+from\s+\d+',
+            r'migrated\s+\d+\+?\s*[km]?',
+            
+            # Time improvements
+            r'from\s+\d+\s*(?:hours?|minutes?|days?|weeks?|months?)\s+to\s+\d+',
+            r'under\s+\d+\s*(?:hours?|minutes?|days?)',
+            r'in\s+under\s+\d+',
+            
+            # Absolute numbers
+            r'\d+[km]?\+?\s+(?:users?|customers?|transactions?|requests?|pods?|servers?|gpus?)',
+            r'supporting?\s+\d+[km]?\+?',
+            r'handling?\s+\d+[km]?\+?',
+            
+            # SLA/uptime metrics
+            r'\d+\.\d+%\s+(?:availability|uptime|sla|slo)',
+            r'slo?\s+[≤<]?\s*\d+',
+            r'rto\s+[≤<]?\s*\d+',
+            r'rpo\s+[≤<]?\s*\d+',
+            
+            # Financial/revenue
+            r'\$\d+[km]?\+?',
+            r'€\d+[km]?\+?',
+            r'revenue.*?\d+%',
+            r'cost.*?\d+%'
         ]
         
-        # Authenticity markers (universal)
-        self.AUTHENTICITY_PATTERNS = {
-            "version_numbers": r'\d+\.\d+(?:\.\d+)?',  # "v3.1.4"
-            "admits_struggles": r'failed|struggled|difficult|challenge|took .+ attempts|harder than expected',
-            "contextual_metrics": r'from\s+[\d.]+.{0,20}to\s+[\d.]+|baseline|previously|was\s+\d+',
-            "mixed_sentence_length": True,  # Check variance in bullet lengths
-        }
+        # Unsexy/authentic work patterns (UNIVERSAL)
+        self.unsexy_work_patterns = [
+            r'\b(debug|troubleshoot|firefight|hotfix|incident|outage|downtime|on[- ]?call|pager)\b',
+            r'\b(manual|tedious|repetitive|grunt work|weekend|late night|emergency|urgent)\b',
+            r'\b(legacy|technical debt|refactor|cleanup|migration|deprecated)\b',
+            r'\b(broke|failed|crashed|bug|error|issue|problem|escalation)\b',
+            r'\b(difficult customer|challenging stakeholder|pushback|resistance|conflict)\b',
+            r'\b(tight deadline|crunch|pressure|stressful|demanding|difficult period)\b'
+        ]
         
-    def _initialize_industry_patterns(self):
-        """Industry-specific problem markers and unsexy work"""
-        
-        self.INDUSTRY_PATTERNS = {
-            "tech": {
-                "keywords": ["kubernetes", "terraform", "aws", "docker", "api", "microservice", "cicd", "devops"],
-                "problems": [
-                    r"OOM|out of memory|heap|memory leak|garbage collection",
-                    r"race condition|deadlock|lock contention|mutex",
-                    r"timeout|connection refused|ECONNREFUSED|ETIMEDOUT",
-                    r"version conflict|dependency hell|breaking change",
-                    r"rolled back|reverted|downgraded|rollback",
-                    r"bug in|issue with|debugged|troubleshoot",
-                    r"latency spike|performance degradation|slow query",
-                    r"production incident|outage|downtime|post-?mortem",
-                    r"state locking|tfstate|corrupted state",
-                    r"certificate expired|SSL|TLS handshake"
-                ],
-                "unsexy_work": [
-                    r"legacy|maintained|upgraded|patch|hotfix",
-                    r"technical debt|refactor|cleanup|deprecated",
-                    r"on[- ]?call|pager|incident response",
-                    r"documentation|documented|runbook|wiki",
-                    r"compliance|audit|SOC\s?2|HIPAA",
-                    r"vulnerability|CVE|security patch",
-                    r"backup|restore|disaster recovery|DR"
-                ]
-            },
+        # AI/template red flags - REFINED (only truly suspicious language)
+        self.ai_red_flags = [
+            # Classic AI power verbs (the really obvious ones)
+            r'\b(spearheaded|orchestrated|championed|pioneered|revolutionized|transformed|leveraged|utilized)\b',
+            r'\b(facilitated|synergized|catalyzed|actualized|conceptualized|operationalized)\b',
             
-            "sales": {
-                "keywords": ["quota", "pipeline", "crm", "salesforce", "outreach", "closed", "deals", "revenue"],
-                "problems": [
-                    r"missed quota|below target|lost deal",
-                    r"churn|cancellation|downgrade",
-                    r"pipeline dried up|low activity",
-                    r"competitive loss|lost to \w+",
-                    r"pricing objection|budget concerns",
-                    r"ghosted|unresponsive|went dark",
-                    r"deal fell through|stalled|stuck",
-                    r"gatekeeper|couldn't reach|blocked"
-                ],
-                "unsexy_work": [
-                    r"cold call|prospecting|outbound",
-                    r"data cleanup|list hygiene|duplicate",
-                    r"lost accounts|territory cleanup",
-                    r"admin|crm updates|logging calls",
-                    r"rejection|no response|not interested"
-                ]
-            },
+            # Buzzword nouns/adjectives
+            r'\b(synergy|paradigm|holistic|robust|scalable|innovative|cutting[- ]?edge|state[- ]?of[- ]?the[- ]?art)\b',
+            r'\b(comprehensive|strategic|dynamic|mission[- ]?critical|industry[- ]?leading|world[- ]?class)\b',
+            r'\b(next[- ]?generation|future[- ]?proof|best[- ]?in[- ]?class|enterprise[- ]?grade)\b',
             
-            "marketing": {
-                "keywords": ["campaign", "seo", "sem", "content", "email", "social", "analytics", "conversion"],
-                "problems": [
-                    r"low CTR|click[- ]?through rate",
-                    r"campaign failed|underperformed|missed target",
-                    r"A/B test showed|conversion dropped",
-                    r"budget cut|reduced spend",
-                    r"low engagement|high bounce",
-                    r"algorithm change|organic decline",
-                    r"unsubscribe rate|spam complaints",
-                    r"attribution issue|tracking broke"
-                ],
-                "unsexy_work": [
-                    r"A/B testing|split test|multivariate",
-                    r"list hygiene|email cleanup",
-                    r"reporting|dashboard|weekly metrics",
-                    r"compliance|GDPR|CAN-SPAM|opt[- ]?out",
-                    r"manual posting|scheduling|calendar"
-                ]
-            },
-            
-            "finance": {
-                "keywords": ["ledger", "reconciliation", "gaap", "sox", "forecast", "budget", "variance", "audit"],
-                "problems": [
-                    r"variance|discrepancy|mismatch",
-                    r"audit finding|control deficiency",
-                    r"reconciliation issue|unreconciled",
-                    r"late close|missed deadline",
-                    r"journal entry error|posting error",
-                    r"system cutover|migration issue",
-                    r"compliance gap|sox issue",
-                    r"manual workaround|spreadsheet error"
-                ],
-                "unsexy_work": [
-                    r"month[- ]?end close|quarter[- ]?end",
-                    r"expense reports|T&E|travel reimbursement",
-                    r"accrual|deferrals|prepaid",
-                    r"audit prep|audit support|sox testing",
-                    r"reconciliation|rec|bank rec",
-                    r"journal entries|manual entries"
-                ]
-            },
-            
-            "healthcare": {
-                "keywords": ["patient", "clinical", "ehr", "emr", "hipaa", "epic", "cerner", "billing", "icd"],
-                "problems": [
-                    r"patient load|high census|understaffed",
-                    r"protocol violation|non[- ]?compliance",
-                    r"medication error|dosage issue",
-                    r"wait time|delay|backlog",
-                    r"billing error|claim denied|rejected",
-                    r"system downtime|ehr crash",
-                    r"staffing shortage|turnover|retention"
-                ],
-                "unsexy_work": [
-                    r"documentation|charting|notes",
-                    r"compliance|hipaa|audit",
-                    r"on[- ]?call|night shift|weekend",
-                    r"prior auth|authorization|approval",
-                    r"claims|billing|coding|icd-?\d+"
-                ]
-            },
-            
-            "operations": {
-                "keywords": ["logistics", "supply chain", "inventory", "fulfillment", "warehouse", "procurement"],
-                "problems": [
-                    r"stockout|out of stock|inventory shortage",
-                    r"delivery delay|late shipment|missed sla",
-                    r"damaged goods|defect|return",
-                    r"supplier issue|vendor delay",
-                    r"capacity constraint|bottleneck",
-                    r"forecast error|demand spike",
-                    r"warehouse issue|picking error"
-                ],
-                "unsexy_work": [
-                    r"cycle count|physical inventory",
-                    r"vendor management|po|purchase order",
-                    r"receiving|put[- ]?away|bin location",
-                    r"reporting|kpi|metrics tracking",
-                    r"safety|osha|incident report"
-                ]
-            },
-            
-            "hr": {
-                "keywords": ["recruiting", "talent", "onboarding", "hris", "workday", "adp", "benefits", "compensation"],
-                "problems": [
-                    r"turnover|attrition|retention issue",
-                    r"offer decline|candidate withdrew",
-                    r"slow hire|time to fill",
-                    r"compliance issue|labor law|misclassification",
-                    r"benefit error|payroll error",
-                    r"employee complaint|investigation",
-                    r"low engagement|survey results"
-                ],
-                "unsexy_work": [
-                    r"onboarding|new hire|paperwork",
-                    r"compliance|i-?9|background check",
-                    r"exit interview|offboarding|termination",
-                    r"open enrollment|benefit admin",
-                    r"hris data|cleanup|audit"
-                ]
-            }
-        }
-        
-    def _initialize_universal_questions(self):
-        """4 universal questions that work across all industries"""
-        self.UNIVERSAL_QUESTIONS = [
-            "What decision authority did you personally hold on this project?",
-            "What did the team depend on you for that no one else could do?",
-            "What changed in the system/process because of your involvement?",
-            "What trade-off did you personally choose and why?"
+            # Generic cliché phrases
+            r'drive results|exceed expectations|think outside the box|hit the ground running',
+            r'passion for excellence|passion for|team player|detail[- ]?oriented|fast[- ]?paced environment',
+            r'strong communication|proven track record|results[- ]?driven|goal[- ]?oriented',
+            r'go[- ]?getter|self[- ]?starter|wear many hats'
         ]
     
-    def score_resume(self, 
-                    resume_text: str,
-                    candidate_name: str = "Unknown") -> AuthenticityResult:
+    def detect_industry(self, text: str) -> Tuple[Optional[str], float]:
+        """Detect primary industry from resume text"""
+        text_lower = text.lower()
+        scores = {}
+        
+        for industry, patterns in self.industry_patterns.items():
+            count = 0
+            for pattern in patterns:
+                matches = re.findall(pattern, text_lower, re.IGNORECASE)
+                count += len(matches)
+            scores[industry] = count
+        
+        if not scores or max(scores.values()) == 0:
+            return None, 0.0
+        
+        top_industry = max(scores, key=scores.get)
+        top_count = scores[top_industry]
+        total_count = sum(scores.values())
+        
+        confidence = min(top_count / max(total_count, 1), 1.0)
+        
+        return top_industry, confidence
+    
+    def count_problems(self, text: str) -> int:
+        """Count specific quantified problems/achievements"""
+        count = 0
+        for pattern in self.problem_patterns:
+            matches = re.findall(pattern, text, re.IGNORECASE)
+            count += len(matches)
+        return count
+    
+    def find_unsexy_work(self, text: str) -> List[str]:
+        """Find evidence of authentic, difficult work"""
+        markers = []
+        text_lower = text.lower()
+        
+        for pattern in self.unsexy_work_patterns:
+            matches = re.findall(pattern, text_lower)
+            for match in matches[:3]:  # Limit per pattern
+                if match not in markers:
+                    markers.append(match)
+        
+        return markers[:5]  # Return top 5
+    
+    def detect_ai_probability(self, text: str) -> float:
         """
-        Main scoring function - works across all industries
-        Philosophy: Start low (30), earn your way up
+        Estimate AI-generation probability based on:
+        1. Buzzwords
+        2. Structural patterns (overly uniform formatting)
+        3. Lack of authentic voice
         """
+        text_lower = text.lower()
+        word_count = len(text.split())
         
-        # START AT 30 - Guilty until proven innocent
-        base_score = 30
-        red_flags = []
-        authenticity_markers = []
+        if word_count == 0:
+            return 0.0
         
-        text_lower = resume_text.lower()
+        # 1. COUNT BUZZWORDS
+        ai_count = 0
+        for pattern in self.ai_red_flags:
+            matches = re.findall(pattern, text_lower)
+            ai_count += len(matches)
         
-        # LAYER 1: Detect Industry
-        industry, confidence = self._detect_industry(text_lower)
+        buzzword_ratio = ai_count / (word_count / 100)  # Per 100 words
         
-        # LAYER 2: Check for Hard Fails
-        hard_fail = self._check_hard_fails(text_lower, industry)
-        if hard_fail:
-            base_score = min(hard_fail, base_score)
-            red_flags.append(f"Critical issues detected - capped at {hard_fail}")
+        # 2. DETECT FORMULAIC STRUCTURE
+        # Count sentences that start with past-tense action verbs (AI pattern)
+        action_verbs = [
+            'led', 'built', 'created', 'developed', 'implemented', 'designed',
+            'managed', 'established', 'delivered', 'executed', 'improved',
+            'increased', 'reduced', 'optimized', 'enhanced', 'automated',
+            'spearheaded', 'orchestrated', 'pioneered', 'architected',
+            'engineered', 'formulated', 'directed', 'conducted', 'performed'
+        ]
         
-        # LAYER 3: Problem Specificity (MOST IMPORTANT)
-        problem_analysis = self._analyze_problems(text_lower, industry)
-        if problem_analysis["count"] == 0:
-            base_score -= 20  # MAJOR PENALTY
-            red_flags.append("❌ Zero specific problems or challenges mentioned")
-        elif problem_analysis["count"] <= 2:
-            base_score += problem_analysis["count"] * 10
-            authenticity_markers.append(f"✓ {problem_analysis['count']} real problem(s) discussed")
+        sentences = re.split(r'[.!?]\s+', text_lower)
+        action_starts = 0
+        for sentence in sentences:
+            sentence = sentence.strip()
+            if any(sentence.startswith(verb) for verb in action_verbs):
+                action_starts += 1
+        
+        if len(sentences) > 10:
+            action_ratio = action_starts / len(sentences)
+            # If >60% of sentences start with action verbs, add to AI probability
+            if action_ratio > 0.6:
+                formula_penalty = (action_ratio - 0.6) * 0.5  # Up to +0.20
+            else:
+                formula_penalty = 0
         else:
-            base_score += min(35, problem_analysis["count"] * 12)
-            authenticity_markers.append(f"✓ Strong problem specificity ({problem_analysis['count']} issues)")
+            formula_penalty = 0
         
-        # LAYER 4: AI/ChatGPT Detection
-        ai_analysis = self._detect_ai_patterns(text_lower)
-        if ai_analysis["high_count"] >= 3:
-            base_score = min(40, base_score)  # Hard cap
-            red_flags.append(f"⚠️ Heavy AI language ({ai_analysis['high_count']} signature verbs)")
-        elif ai_analysis["total_weighted"] >= 4:
-            base_score -= 18
-            red_flags.append("⚠️ Significant AI patterns detected")
-        elif ai_analysis["total_weighted"] >= 2:
-            base_score -= 10
-            red_flags.append("⚠️ Some AI language patterns")
+        # 3. CHECK FOR OVER-WORDINESS
+        # Very long resumes (1200+ words) without personality are suspect
+        if word_count > 1200:
+            length_penalty = (word_count - 1200) / 2000 * 0.15  # Up to +0.15
+        else:
+            length_penalty = 0
         
-        # LAYER 5: Unsexy Work Bonus
-        unsexy_analysis = self._analyze_unsexy_work(text_lower, industry)
-        if unsexy_analysis["score"] > 0:
-            base_score += unsexy_analysis["score"]
-            authenticity_markers.append(f"✓ Real unsexy work: +{unsexy_analysis['score']}")
+        # COMBINE FACTORS
+        total_probability = min(
+            (buzzword_ratio * 0.15) + formula_penalty + length_penalty,
+            0.95  # Cap at 95%
+        )
         
-        # LAYER 6: Authenticity Bonuses
-        authenticity_bonus = self._calculate_authenticity_bonus(resume_text, text_lower)
-        base_score += authenticity_bonus["score"]
-        if authenticity_bonus["markers"]:
-            authenticity_markers.extend(authenticity_bonus["markers"])
+        return total_probability
+    
+    def generate_universal_questions(self, text: str, problems: int, unsexy: List[str]) -> List[str]:
+        """Generate universal interview questions"""
+        questions = []
         
-        # LAYER 7: Vague Metrics Penalty
-        vague_count = self._count_vague_metrics(text_lower)
-        if vague_count >= 5:
-            base_score -= 15
-            red_flags.append(f"⚠️ {vague_count} unsubstantiated metrics")
-        elif vague_count >= 3:
-            base_score -= 8
-            red_flags.append(f"⚠️ {vague_count} vague percentage claims")
+        if problems > 0:
+            questions.append("Walk me through your biggest measurable impact - what was the before/after and how did you achieve it?")
         
-        # LAYER 8: Generic Company Penalty
-        generic_count = self._count_generic_companies(text_lower)
-        if generic_count >= 2:
-            base_score -= 10
-            red_flags.append(f"⚠️ {generic_count} generic company names")
+        if unsexy:
+            questions.append("Tell me about a time something broke in production or went wrong - what happened and how did you fix it?")
+        else:
+            questions.append("What's the most frustrating or tedious part of your current role? How do you handle it?")
         
-        # Calculate final score
-        raw_score = max(20, min(100, base_score))
+        questions.append("Describe a time you had to deal with ambiguity or incomplete information. How did you move forward?")
         
-        # Convert to 5-star system
-        star_rating, star_display, tier, verdict = self._convert_to_stars(raw_score)
+        return questions
+    
+    def detect_career_growth(self, text: str) -> Tuple[int, bool]:
+        """
+        Detect career progression within same company/through acquisition
+        Returns: (promotion_count, has_long_tenure)
         
-        # Get industry-specific question
-        industry_question = self._get_industry_question(industry, text_lower, confidence)
+        Strong authenticity signal - hard to fake, shows real value
+        SELECTIVE: Only bonuses clear same-company growth
+        """
+        text_lower = text.lower()
         
-        # Determine AI probability
-        ai_probability = self._determine_ai_probability(ai_analysis, problem_analysis)
+        # Look for explicit same-company progression signals
+        # Pattern: Same company name with multiple different titles
+        
+        # 1. EXPLICIT PROMOTION MENTIONS
+        promotion_indicators = [
+            r'promoted\s+to',
+            r'advancement\s+to',
+            r'grew\s+(?:career|role)',
+            r'progressed\s+to',
+            r'elevated\s+to'
+        ]
+        
+        explicit_promotions = 0
+        for pattern in promotion_indicators:
+            explicit_promotions += len(re.findall(pattern, text_lower))
+        
+        # 2. ACQUISITION SURVIVAL (strong signal)
+        acquisition_mentions = len(re.findall(r'(?:led|through|during|managed).*?acquisition|acquired\s+by', text_lower))
+        
+        # 3. DETECT MULTIPLE ROLES AT SAME COMPANY
+        # Look for patterns like "Company — Role1" then "Company — Role2"
+        # This is tricky, so we'll look for repeated company names with different role keywords
+        
+        # Extract lines that look like job titles
+        lines = text.split('\n')
+        company_roles = []
+        
+        for i, line in enumerate(lines):
+            # Look for lines with "—" or "," separating company and role
+            if '—' in line or ' - ' in line:
+                company_roles.append(line.lower().strip())
+        
+        # Count how many times we see progression keywords WITH same company context
+        same_company_progression = 0
+        
+        # Look for clear patterns of: "senior", "lead", "principal", "manager" appearing multiple times
+        # in close proximity (same company section)
+        progression_keywords = ['engineer', 'senior', 'lead', 'principal', 'manager', 'director', 'architect']
+        
+        # Count unique progression levels found
+        levels_in_resume = [kw for kw in progression_keywords if kw in text_lower]
+        
+        # If we see 4+ different role levels + acquisition OR explicit promotion, it's likely progression
+        if len(set(levels_in_resume)) >= 4 and (acquisition_mentions > 0 or explicit_promotions > 0):
+            same_company_progression = 2
+        elif len(set(levels_in_resume)) >= 4:
+            same_company_progression = 1
+        
+        # 4. LONG TENURE DETECTION (10+ years, 15+ years, 20+ years)
+        tenure_patterns = [
+            r'(\d+)\+?\s*years?\s+(?:of\s+)?(?:experience|expertise)',
+            r'over\s+(\d+)\s+years?',
+            r'(\d+)\+?\s*years?\s+of\s+(?:experience|expertise)'
+        ]
+        
+        max_tenure_mentioned = 0
+        for pattern in tenure_patterns:
+            matches = re.findall(pattern, text_lower)
+            for match in matches:
+                try:
+                    years = int(match)
+                    max_tenure_mentioned = max(max_tenure_mentioned, years)
+                except:
+                    pass
+        
+        # SCORING
+        total_promotion_score = 0
+        
+        # Explicit promotions: strong signal
+        if explicit_promotions > 0:
+            total_promotion_score += explicit_promotions
+        
+        # Acquisition survival: strong signal  
+        if acquisition_mentions > 0:
+            total_promotion_score += 1
+        
+        # Same company progression: strong signal
+        total_promotion_score += same_company_progression
+        
+        # Long tenure flag - VERY STRICT
+        # Only bonus if explicitly mentioned "20+ years" OR 15+ with acquisition/progression
+        has_significant_tenure = False
+        
+        if max_tenure_mentioned >= 20:
+            # Explicitly states 20+ years
+            has_significant_tenure = True
+        elif max_tenure_mentioned >= 15 and total_promotion_score >= 2:
+            # 15+ years AND clear progression/acquisition
+            has_significant_tenure = True
+        
+        return (total_promotion_score, has_significant_tenure)
+    
+    def generate_industry_question(self, industry: Optional[str], text: str) -> str:
+        """Generate industry-specific behavioral question"""
+        
+        industry_questions = {
+            "Technology": "Walk me through a recent outage or production incident - what was your role in the resolution?",
+            "Sales": "Tell me about a deal that fell apart late in the process - what happened and what did you learn?",
+            "Marketing": "Describe a campaign that underperformed - how did you diagnose the issue and what changes did you make?",
+            "Finance": "Tell me about a time your financial model or forecast was significantly off - what happened?",
+            "Healthcare": "Describe a difficult patient situation where you had to balance multiple priorities - how did you handle it?",
+            "Operations": "Tell me about a process that broke down or caused delays - how did you identify and fix it?",
+            "HR": "Describe a difficult employee situation you had to manage - what was the outcome?"
+        }
+        
+        if industry and industry in industry_questions:
+            return industry_questions[industry]
+        
+        return "Tell me about a time you failed at something important - what happened and what did you learn?"
+    
+    def calculate_score(
+        self,
+        problems: int,
+        unsexy_count: int,
+        ai_probability: float,
+        word_count: int,
+        industry_detected: bool,
+        career_growth: int,
+        has_long_tenure: bool
+    ) -> float:
+        """
+        CALIBRATED scoring algorithm
+        Balanced bonuses with career growth reward
+        """
+        
+        # BASELINE: Start at 55
+        score = 55.0
+        
+        # PROBLEM SPECIFICITY: +3 per problem (strong signal)
+        if problems > 0:
+            problem_bonus = min(problems * 3.0, 24)  # Cap at +24
+            score += problem_bonus
+        
+        # UNSEXY WORK: +2.5 per marker (authenticity signal)
+        if unsexy_count > 0:
+            unsexy_bonus = min(unsexy_count * 2.5, 12)  # Cap at +12
+            score += unsexy_bonus
+        
+        # CAREER GROWTH: Bonus for internal progression (selective)
+        # Growing within a company = strong authenticity signal
+        if career_growth > 0:
+            growth_bonus = min(career_growth * 1.0, 5)  # Up to +5
+            score += growth_bonus
+        
+        # LONG TENURE: Bonus for significant staying power (15+ years)
+        if has_long_tenure:
+            score += 3  # Loyalty/expertise bonus (reduced)
+        
+        # AI PROBABILITY: SEVERE penalty for template resumes
+        # Anyone over 40% AI probability is highly suspect
+        if ai_probability > 0.15:
+            # Progressive penalty that gets exponentially worse
+            excess = ai_probability - 0.15
+            if ai_probability > 0.40:
+                # Severe penalty for obvious templates (40%+)
+                ai_penalty = 20 + (excess * 60)  # Massive hit
+            else:
+                # Moderate penalty for 15-40%
+                ai_penalty = excess * 40
+            score -= ai_penalty
+        
+        # LENGTH PENALTIES: Smart about achievement density
+        if word_count < 150:
+            score -= 15  # Too brief, lacks substance
+        elif word_count > 1000:
+            # Long resume is OK if packed with achievements
+            # Calculate achievement density
+            achievement_density = problems / max(word_count, 1) * 1000  # Problems per 1000 words
+            
+            if achievement_density >= 8.0:
+                # High density (8+ problems per 1000 words) = no penalty
+                verbosity_penalty = 0
+            elif achievement_density >= 6.0:
+                # Medium-high density = small penalty
+                verbosity_penalty = (word_count - 1000) / 100 * 2
+            else:
+                # Low density = harsh penalty (verbose without substance)
+                verbosity_penalty = min((word_count - 1000) / 50 * 10, 40)
+            
+            score -= verbosity_penalty
+        
+        # INDUSTRY DETECTION: Small bonus for clarity
+        if industry_detected:
+            score += 5
+        
+        # FLOOR AND CEILING
+        score = max(15, min(100, score))
+        
+        return round(score, 1)
+    
+    def score_to_stars(self, score: float) -> Tuple[int, str]:
+        """Convert score to star rating"""
+        if score >= 95:
+            return 5, "★★★★★"
+        elif score >= 85:
+            return 4, "★★★★☆"
+        elif score >= 70:
+            return 3, "★★★☆☆"
+        elif score >= 55:
+            return 2, "★★☆☆☆"
+        else:
+            return 1, "★☆☆☆☆"
+    
+    def score_to_tier(self, score: float) -> str:
+        """Map score to hiring tier"""
+        if score >= 95:
+            return "Elite"
+        elif score >= 85:
+            return "Excellent"
+        elif score >= 70:
+            return "Strong"
+        elif score >= 55:
+            return "Fair"
+        elif score >= 40:
+            return "Weak"
+        else:
+            return "High Risk"
+    
+    def generate_verdict(self, score: float, problems: int, unsexy_count: int) -> str:
+        """Generate human-readable verdict"""
+        if score >= 95:
+            return f"Elite candidate with {problems} quantified achievements and clear evidence of real work."
+        elif score >= 85:
+            return f"Strong candidate with {problems} measurable impacts. Excellent authenticity signals."
+        elif score >= 70:
+            return f"Solid candidate with {problems} specific achievements. Some authenticity markers present."
+        elif score >= 55:
+            return f"Fair candidate with {problems} quantified problems. Limited authenticity signals."
+        elif score >= 40:
+            return f"Weak profile with only {problems} specific achievements. High AI/template probability."
+        else:
+            return f"High risk candidate. Minimal specificity ({problems} problems) and authenticity signals."
+    
+    def identify_red_flags(self, text: str, ai_probability: float, problems: int, unsexy_count: int) -> List[str]:
+        """Identify resume red flags"""
+        flags = []
+        
+        if ai_probability > 0.5:
+            flags.append(f"High AI/template probability ({ai_probability:.0%})")
+        
+        if problems == 0:
+            flags.append("No quantified achievements or measurable impact")
+        elif problems == 1:
+            flags.append("Only 1 specific, quantified achievement")
+        
+        if unsexy_count == 0:
+            flags.append("No evidence of handling difficult/unglamorous work")
+        
+        if len(text.split()) < 200:
+            flags.append("Resume suspiciously short")
+        
+        # Check for generic phrases
+        generic_count = 0
+        generic_phrases = ["team player", "detail oriented", "fast paced", "results driven"]
+        for phrase in generic_phrases:
+            if phrase in text.lower():
+                generic_count += 1
+        
+        if generic_count >= 3:
+            flags.append(f"Generic template language ({generic_count} clichés)")
+        
+        return flags
+    
+    def score_resume(self, resume_text: str, candidate_name: str = "Candidate") -> AuthenticityResult:
+        """
+        Score a resume with CALIBRATED universal engine
+        """
+        
+        # Detect industry
+        industry, confidence = self.detect_industry(resume_text)
+        
+        # Extract signals
+        problems = self.count_problems(resume_text)
+        unsexy_markers = self.find_unsexy_work(resume_text)
+        unsexy_count = len(unsexy_markers)
+        ai_probability = self.detect_ai_probability(resume_text)
+        word_count = len(resume_text.split())
+        
+        # Detect career growth (new!)
+        career_growth, has_long_tenure = self.detect_career_growth(resume_text)
+        
+        # Calculate calibrated score
+        raw_score = self.calculate_score(
+            problems=problems,
+            unsexy_count=unsexy_count,
+            ai_probability=ai_probability,
+            word_count=word_count,
+            industry_detected=(industry is not None),
+            career_growth=career_growth,
+            has_long_tenure=has_long_tenure
+        )
+        
+        # Convert to stars and tier
+        stars, star_display = self.score_to_stars(raw_score)
+        tier = self.score_to_tier(raw_score)
+        
+        # Generate outputs
+        verdict = self.generate_verdict(raw_score, problems, unsexy_count)
+        red_flags = self.identify_red_flags(resume_text, ai_probability, problems, unsexy_count)
+        universal_questions = self.generate_universal_questions(resume_text, problems, unsexy_markers)
+        industry_question = self.generate_industry_question(industry, resume_text)
         
         return AuthenticityResult(
             candidate=candidate_name,
-            star_rating=star_rating,
+            raw_score=raw_score,
+            star_rating=stars,
             star_display=star_display,
             tier=tier,
             verdict=verdict,
-            raw_score=raw_score,
             red_flags=red_flags,
-            authenticity_markers=authenticity_markers,
-            industry_detected=industry if confidence >= 0.3 else None,
-            industry_confidence=confidence,
-            has_real_problems=problem_analysis["count"] > 0,
+            authenticity_markers=unsexy_markers,
+            has_real_problems=(problems > 0),
+            industry_detected=industry,
+            industry_confidence=confidence if industry else 0.0,
             ai_probability=ai_probability,
-            universal_questions=self.UNIVERSAL_QUESTIONS,
+            universal_questions=universal_questions,
             industry_specific_question=industry_question
         )
-    
-    def _detect_industry(self, text_lower: str) -> Tuple[Optional[str], float]:
-        """Auto-detect industry from resume content"""
-        scores = {}
-        
-        for industry, patterns in self.INDUSTRY_PATTERNS.items():
-            keyword_hits = sum(1 for kw in patterns["keywords"] if kw in text_lower)
-            scores[industry] = keyword_hits / len(patterns["keywords"])
-        
-        if scores:
-            best_industry = max(scores, key=scores.get)
-            return (best_industry, scores[best_industry]) if scores[best_industry] > 0 else (None, 0)
-        return (None, 0)
-    
-    def _check_hard_fails(self, text_lower: str, industry: Optional[str]) -> Optional[int]:
-        """Check for immediate disqualifiers"""
-        
-        # Multiple "spearheaded" or "orchestrated"
-        spearhead_count = text_lower.count("spearheaded") + text_lower.count("orchestrated")
-        if spearhead_count >= 4:
-            return 35
-        
-        # Tech-specific timeline checks (if tech industry detected)
-        if industry == "tech":
-            if re.search(r"kubernetes.*20(0[0-9]|1[0-3])", text_lower):
-                return 38  # K8s before 2014
-            if re.search(r"terraform.*20(0[0-9]|1[0-3])", text_lower):
-                return 38  # Terraform before 2014
-        
-        return None
-    
-    def _analyze_problems(self, text_lower: str, industry: Optional[str]) -> Dict:
-        """Count real problems mentioned (industry-aware)"""
-        problems_found = set()
-        
-        # Use industry-specific patterns if detected
-        if industry and industry in self.INDUSTRY_PATTERNS:
-            patterns = self.INDUSTRY_PATTERNS[industry]["problems"]
-            for pattern in patterns:
-                if re.search(pattern, text_lower):
-                    problems_found.add(pattern.split('|')[0])
-        else:
-            # Fallback: check all industries
-            for ind_patterns in self.INDUSTRY_PATTERNS.values():
-                for pattern in ind_patterns["problems"]:
-                    if re.search(pattern, text_lower):
-                        problems_found.add(pattern.split('|')[0])
-        
-        return {
-            "count": len(problems_found),
-            "problems": list(problems_found)[:5]
-        }
-    
-    def _detect_ai_patterns(self, text_lower: str) -> Dict:
-        """Detect AI/ChatGPT language patterns"""
-        high_count = sum(1 for verb in self.AI_VERBS["high_confidence"] 
-                        if verb in text_lower)
-        medium_count = sum(1 for verb in self.AI_VERBS["medium_confidence"] 
-                          if verb in text_lower)
-        
-        total_weighted = high_count * 2 + medium_count
-        
-        return {
-            "high_count": high_count,
-            "medium_count": medium_count,
-            "total_weighted": total_weighted
-        }
-    
-    def _analyze_unsexy_work(self, text_lower: str, industry: Optional[str]) -> Dict:
-        """Check for real unsexy work (industry-aware)"""
-        unsexy_found = set()
-        
-        if industry and industry in self.INDUSTRY_PATTERNS:
-            patterns = self.INDUSTRY_PATTERNS[industry]["unsexy_work"]
-            for pattern in patterns:
-                if re.search(pattern, text_lower):
-                    unsexy_found.add(pattern.split('|')[0])
-        
-        count = len(unsexy_found)
-        score = min(12, count * 4)
-        
-        return {"score": score, "count": count}
-    
-    def _calculate_authenticity_bonus(self, text: str, text_lower: str) -> Dict:
-        """Bonus points for universal authenticity markers"""
-        score = 0
-        markers = []
-        
-        # Version numbers
-        if re.search(self.AUTHENTICITY_PATTERNS["version_numbers"], text):
-            score += 5
-            markers.append("✓ Specific versions mentioned")
-        
-        # Admits struggles/failures
-        if re.search(self.AUTHENTICITY_PATTERNS["admits_struggles"], text_lower):
-            score += 8
-            markers.append("✓ Admits real challenges")
-        
-        # Contextual metrics
-        if re.search(self.AUTHENTICITY_PATTERNS["contextual_metrics"], text_lower):
-            score += 6
-            markers.append("✓ Contextual metrics (before/after)")
-        
-        # Check sentence length variance (natural writing)
-        bullets = re.findall(r'[•\-\*]\s*(.+)', text)
-        if len(bullets) >= 3:
-            lengths = [len(b) for b in bullets]
-            if max(lengths) - min(lengths) > 50:  # Good variance
-                score += 4
-                markers.append("✓ Natural writing rhythm")
-        
-        return {"score": score, "markers": markers}
-    
-    def _count_vague_metrics(self, text_lower: str) -> int:
-        """Count vague percentage claims without context"""
-        vague = re.findall(self.VAGUE_METRICS_PATTERN, text_lower)
-        contextual = re.findall(r'from\s+.{0,20}to\s+|baseline|previously|was\s+\d+', text_lower)
-        return max(0, len(vague) - len(contextual))
-    
-    def _count_generic_companies(self, text_lower: str) -> int:
-        """Count generic company names"""
-        count = 0
-        for company in self.GENERIC_COMPANIES:
-            count += text_lower.count(company)
-        return count
-    
-    def _convert_to_stars(self, raw_score: int) -> Tuple[float, str, str, str]:
-        """Convert raw score to 5-star rating system"""
-        if raw_score >= 90:
-            return (5.0, "⭐⭐⭐⭐⭐", "Elite", 
-                   "✅ Elite verified - Fast-track to final interview")
-        elif raw_score >= 80:
-            return (4.0, "⭐⭐⭐⭐", "Excellent", 
-                   "✅ Excellent - Strong proceed with standard process")
-        elif raw_score >= 70:
-            return (4.0, "⭐⭐⭐⭐", "Strong", 
-                   "✅ Strong - Normal screening process")
-        elif raw_score >= 55:
-            return (3.0, "⭐⭐⭐", "Fair", 
-                   "🟡 Fair - Extra verification recommended")
-        elif raw_score >= 40:
-            return (2.0, "⭐⭐", "Weak", 
-                   "⚠️ Weak - Heavy vetting required")
-        else:
-            return (1.0, "⭐", "High Risk", 
-                   "❌ High risk - Multiple red flags")
-    
-    def _get_industry_question(self, industry: Optional[str], 
-                              text: str, confidence: float) -> Optional[str]:
-        """Get industry-specific question"""
-        
-        # Tech domain questions (if available and high confidence)
-        if industry == "tech" and confidence >= 0.5 and DOMAIN_MODULES_AVAILABLE:
-            if "kubernetes" in text or "terraform" in text:
-                return q5_devops(text)
-            elif "microservice" in text or "api" in text:
-                return q5_backend(text)
-            elif "saml" in text or "oauth" in text:
-                return q5_iam(text)
-            elif "spark" in text or "kafka" in text:
-                return q5_data(text)
-        
-        # Industry-specific screening questions
-        if confidence >= 0.4:
-            industry_questions = {
-                "sales": "Walk me through your most difficult lost deal and what you learned.",
-                "marketing": "Describe a campaign that underperformed and how you diagnosed the issue.",
-                "finance": "What was your most challenging month-end close and why?",
-                "healthcare": "Describe a situation where you had competing patient priorities - how did you handle it?",
-                "operations": "Tell me about a time when a supplier let you down - what was your backup plan?",
-                "hr": "What's the toughest hiring mistake you made and how did you fix it?"
-            }
-            return industry_questions.get(industry)
-        
-        return None
-    
-    def _determine_ai_probability(self, ai_analysis: Dict, problem_analysis: Dict) -> str:
-        """Determine likelihood of AI generation"""
-        if ai_analysis["high_count"] >= 3 and problem_analysis["count"] == 0:
-            return "Very High (90%+)"
-        elif ai_analysis["total_weighted"] >= 4:
-            return "High (70-90%)"
-        elif ai_analysis["total_weighted"] >= 2:
-            return "Moderate (40-70%)"
-        else:
-            return "Low (<40%)"
 
 
-# Simple usage example
+# Quick test if run directly
 if __name__ == "__main__":
     engine = UniversalAuthenticityEngine()
     
-    # Example tech resume
-    tech_resume = """
-    Senior DevOps Engineer
-    • Resolved production Kubernetes OOM errors by implementing resource limits
-    • Debugged Terraform state locking issues during migration
-    • Maintained legacy Jenkins pipelines and technical debt cleanup
+    test_resume = """
+    Senior Software Engineer
+    
+    Led migration of monolithic app to microservices, reducing deployment time by 60%.
+    Debugged critical production issue affecting 10k users during holiday weekend.
+    Reduced API latency from 800ms to 120ms through caching improvements.
+    
+    Skills: Python, Kubernetes, AWS, PostgreSQL
     """
     
-    # Example sales resume
-    sales_resume = """
-    Account Executive
-    • Closed $2.3M in new business, missing Q4 quota by 8%
-    • Lost major deal to competitor due to pricing, adjusted strategy
-    • Cold called 50+ prospects daily to rebuild pipeline after territory change
-    """
-    
-    result_tech = engine.score_resume(tech_resume, "Tech Candidate")
-    result_sales = engine.score_resume(sales_resume, "Sales Candidate")
-    
-    print(f"\n=== TECH CANDIDATE ===")
-    print(f"Rating: {result_tech.star_display} ({result_tech.star_rating}/5)")
-    print(f"Tier: {result_tech.tier}")
-    print(f"Industry: {result_tech.industry_detected} ({result_tech.industry_confidence:.0%} confidence)")
-    print(f"Verdict: {result_tech.verdict}")
-    print(f"Red Flags: {result_tech.red_flags}")
-    print(f"Authenticity: {result_tech.authenticity_markers}")
-    
-    print(f"\n=== SALES CANDIDATE ===")
-    print(f"Rating: {result_sales.star_display} ({result_sales.star_rating}/5)")
-    print(f"Tier: {result_sales.tier}")
-    print(f"Industry: {result_sales.industry_detected} ({result_sales.industry_confidence:.0%} confidence)")
-    print(f"Verdict: {result_sales.verdict}")
-    print(f"Red Flags: {result_sales.red_flags}")
-    print(f"Authenticity: {result_sales.authenticity_markers}")
+    result = engine.score_resume(test_resume, "Test Candidate")
+    print(f"\n{'='*60}")
+    print(f"Candidate: {result.candidate}")
+    print(f"Industry: {result.industry_detected} ({result.industry_confidence:.0%} confidence)")
+    print(f"Score: {result.raw_score} {result.star_display}")
+    print(f"Tier: {result.tier}")
+    print(f"Verdict: {result.verdict}")
+    print(f"Red Flags: {', '.join(result.red_flags) if result.red_flags else 'None'}")
+    print(f"Authenticity Markers: {', '.join(result.authenticity_markers) if result.authenticity_markers else 'None'}")
+    print(f"{'='*60}\n")
