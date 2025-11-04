@@ -401,65 +401,74 @@ class UniversalAuthenticityEngine:
         has_long_tenure: bool
     ) -> float:
         """
-        CALIBRATED scoring algorithm
-        Balanced bonuses with career growth reward
+        PRODUCTION SCORING ALGORITHM
+        
+        Philosophy: Values what 20-year recruiters trust
+        - Authenticity signals (hard to fake) > BS metrics (easy to fake)
+        - Career progression (extremely hard to fake)
+        - Template language (instant red flag)
+        - Achievement density (substance over fluff)
         """
         
         # BASELINE: Start at 55
         score = 55.0
         
-        # PROBLEM SPECIFICITY: +3 per problem (strong signal)
+        # QUANTIFIED PROBLEMS: +2 per problem (cap +20)
+        # Reduced weight - metrics are easy to fabricate ("99.99% uptime", "$500K saved")
         if problems > 0:
-            problem_bonus = min(problems * 3.0, 24)  # Cap at +24
+            problem_bonus = min(problems * 2.0, 20)  # Cap at +20
             score += problem_bonus
         
-        # UNSEXY WORK: +2.5 per marker (authenticity signal)
+        # AUTHENTICITY MARKERS: +3.5 per marker (cap +14)
+        # INCREASED weight - unsexy work is hard to fake
+        # (incidents, debugging, legacy, manual work, production issues)
         if unsexy_count > 0:
-            unsexy_bonus = min(unsexy_count * 2.5, 12)  # Cap at +12
+            unsexy_bonus = min(unsexy_count * 3.5, 14)  # Cap at +14
             score += unsexy_bonus
         
-        # CAREER GROWTH: Bonus for internal progression (selective)
-        # Growing within a company = strong authenticity signal
+        # CAREER GROWTH: +1 per growth point (cap +5)
+        # Internal promotions, acquisition survival - extremely hard to fake
         if career_growth > 0:
-            growth_bonus = min(career_growth * 1.0, 5)  # Up to +5
+            growth_bonus = min(career_growth * 1.0, 5)
             score += growth_bonus
         
-        # LONG TENURE: Bonus for significant staying power (15+ years)
+        # LONG TENURE BONUS: +3 for significant staying power
+        # 20+ years OR 15+ with progression - validates expertise
         if has_long_tenure:
-            score += 3  # Loyalty/expertise bonus (reduced)
+            score += 3
         
         # AI PROBABILITY: SEVERE penalty for template resumes
-        # Anyone over 40% AI probability is highly suspect
+        # Heavy buzzwords = trying to game ATS systems
         if ai_probability > 0.15:
-            # Progressive penalty that gets exponentially worse
             excess = ai_probability - 0.15
             if ai_probability > 0.40:
-                # Severe penalty for obvious templates (40%+)
-                ai_penalty = 20 + (excess * 60)  # Massive hit
+                # Obvious template (40%+) - massive penalty
+                ai_penalty = 20 + (excess * 60)
             else:
-                # Moderate penalty for 15-40%
+                # Moderate template (15-40%) - significant penalty
                 ai_penalty = excess * 40
             score -= ai_penalty
         
-        # LENGTH PENALTIES: Smart about achievement density
-        if word_count < 150:
-            score -= 15  # Too brief, lacks substance
-        elif word_count > 1000:
-            # Long resume is OK if packed with achievements
-            # Calculate achievement density
-            achievement_density = problems / max(word_count, 1) * 1000  # Problems per 1000 words
+        # ACHIEVEMENT DENSITY: Smart penalty for verbose padding
+        # Long resumes OK if packed with substance
+        if word_count > 1000:
+            achievement_density = problems / max(word_count, 1) * 1000
             
             if achievement_density >= 8.0:
-                # High density (8+ problems per 1000 words) = no penalty
+                # High density (8+ problems/1000 words) = substantial content
                 verbosity_penalty = 0
             elif achievement_density >= 6.0:
-                # Medium-high density = small penalty
+                # Medium density = slight concern
                 verbosity_penalty = (word_count - 1000) / 100 * 2
             else:
-                # Low density = harsh penalty (verbose without substance)
+                # Low density = padding with fluff
                 verbosity_penalty = min((word_count - 1000) / 50 * 10, 40)
             
             score -= verbosity_penalty
+        
+        # LENGTH PENALTIES: Too brief or absurdly long
+        if word_count < 150:
+            score -= 15  # Insufficient detail
         
         # INDUSTRY DETECTION: Small bonus for clarity
         if industry_detected:
@@ -498,26 +507,184 @@ class UniversalAuthenticityEngine:
         else:
             return "High Risk"
     
-    def generate_verdict(self, score: float, problems: int, unsexy_count: int) -> str:
-        """Generate human-readable verdict"""
-        if score >= 95:
-            return f"Elite candidate with {problems} quantified achievements and clear evidence of real work."
-        elif score >= 85:
-            return f"Strong candidate with {problems} measurable impacts. Excellent authenticity signals."
-        elif score >= 70:
-            return f"Solid candidate with {problems} specific achievements. Some authenticity markers present."
-        elif score >= 55:
-            return f"Fair candidate with {problems} quantified problems. Limited authenticity signals."
-        elif score >= 40:
-            return f"Weak profile with only {problems} specific achievements. High AI/template probability."
+    def generate_verdict(self, score: float, problems: int, unsexy_count: int, ai_prob: float, career_growth: int, has_tenure: bool, word_count: int = 0) -> str:
+        """Generate specific, actionable verdict with concrete details"""
+        
+        # Calculate achievement density
+        achievement_density = (problems / max(word_count, 1) * 1000) if word_count > 0 else 0
+        
+        # Build specific details list
+        details = []
+        
+        # Problems/metrics
+        if problems >= 10:
+            details.append(f"{problems} quantified metrics")
+        elif problems >= 5:
+            details.append(f"{problems} measurable achievements")
+        elif problems >= 2:
+            details.append(f"{problems} specific metrics")
+        elif problems == 1:
+            details.append("only 1 quantified achievement")
         else:
-            return f"High risk candidate. Minimal specificity ({problems} problems) and authenticity signals."
+            details.append("no quantified achievements")
+        
+        # Authenticity signals
+        if unsexy_count >= 3:
+            details.append("clear evidence of real work (incidents, legacy, debugging)")
+        elif unsexy_count >= 1:
+            details.append("some authenticity markers")
+        else:
+            details.append("no evidence of difficult/unglamorous work")
+        
+        # Career growth
+        if career_growth >= 3 and has_tenure:
+            details.append("strong career progression at one company (15+ years)")
+        elif career_growth >= 2:
+            details.append("internal promotions detected")
+        
+        # Verbosity flag
+        is_verbose = word_count > 1000 and achievement_density < 6.0
+        if is_verbose:
+            details.append(f"verbose ({word_count} words, low density)")
+        
+        # AI concerns
+        if ai_prob >= 0.40:
+            details.append(f"MAJOR RED FLAG: {ai_prob:.0%} AI-templated")
+        elif ai_prob >= 0.15:
+            details.append(f"{ai_prob:.0%} template language")
+        
+        # Generate verdict based on score
+        if score >= 95:
+            return f"Elite candidate: {', '.join(details)}. Fast-track to hiring manager."
+        
+        elif score >= 85:
+            action = "Skip phone screen → technical interview"
+            if ai_prob > 0.10:
+                action = "Proceed to tech interview but verify claims carefully"
+            return f"Excellent: {', '.join(details)}. {action}."
+        
+        elif score >= 70:
+            concerns = []
+            if problems < 5:
+                concerns.append("ask for 3-5 specific quantified examples")
+            if unsexy_count == 0:
+                concerns.append("probe on handling production issues")
+            if ai_prob > 0.15:
+                concerns.append("verify technical depth")
+            
+            action = " - " + ", ".join(concerns) if concerns else ""
+            return f"Solid candidate: {', '.join(details)}{action}."
+        
+        elif score >= 55:
+            issues = []
+            if problems <= 1:
+                issues.append(f"only {problems} metric")
+            if is_verbose:
+                issues.append("resume padded with fluff")
+            if ai_prob > 0.10:
+                issues.append(f"template language ({ai_prob:.0%})")
+            if unsexy_count == 0:
+                issues.append("no proof of real work")
+            
+            concern_text = " Concerns: " + ", ".join(issues) if issues else ""
+            return f"Fair but risky: {', '.join(details)}.{concern_text}. Technical assessment required."
+        
+        elif score >= 40:
+            red_flags = []
+            if is_verbose:
+                red_flags.append("padded resume (low achievement density)")
+            if problems <= 3:
+                red_flags.append(f"only {problems} metrics for {word_count} words")
+            if ai_prob >= 0.08:
+                red_flags.append(f"{ai_prob:.0%} buzzword density")
+            if unsexy_count == 0:
+                red_flags.append("no authenticity markers")
+            
+            flag_text = "; ".join(red_flags) if red_flags else "multiple concerns"
+            return f"High risk: {', '.join(details)}. Red flags: {flag_text}. Only proceed if desperate."
+        
+        else:
+            return f"Reject: {', '.join(details)}. Too many red flags."
+    
+    def detect_fraud_signals(self, text: str, word_count: int) -> List[str]:
+        """
+        Detect fraud patterns that experienced recruiters spot instantly
+        Based on 20+ years of recruiting experience
+        
+        Returns list of specific red flags (not score penalties, just warnings)
+        """
+        fraud_flags = []
+        text_lower = text.lower()
+        
+        # 1. MISSING SCHOOL NAME
+        # "Bachelor of Technology" with no university = suspicious
+        education_keywords = ['bachelor', 'master', 'mba', 'degree', 'b.s.', 'm.s.', 'b.tech', 'm.tech']
+        university_keywords = ['university', 'college', 'institute', 'school']
+        
+        has_degree = any(keyword in text_lower for keyword in education_keywords)
+        has_institution = any(keyword in text_lower for keyword in university_keywords)
+        
+        if has_degree and not has_institution:
+            fraud_flags.append("No school/university listed for degree (suspicious)")
+        
+        # 2. EXCESSIVE BULLET POINTS
+        # Count bullet patterns (•, *, -, numbers at line start)
+        bullet_patterns = [
+            r'^\s*[•\*\-]\s',  # Bullet markers
+            r'^\s*\d+\.',       # Numbered lists
+        ]
+        
+        lines = text.split('\n')
+        bullet_count = 0
+        for line in lines:
+            for pattern in bullet_patterns:
+                if re.match(pattern, line.strip()):
+                    bullet_count += 1
+                    break
+        
+        # Estimate job count (very rough - look for date patterns)
+        job_dates = re.findall(r'\d{4}\s*[-–]\s*\d{4}|\d{4}\s*[-–]\s*(?:current|present)', text_lower)
+        estimated_jobs = max(len(job_dates), 1)
+        
+        bullets_per_job = bullet_count / estimated_jobs if estimated_jobs > 0 else 0
+        
+        if bullets_per_job > 15:
+            fraud_flags.append(f"Excessive bullets ({bullet_count} bullets for ~{estimated_jobs} jobs = keyword stuffing?)")
+        elif bullet_count > 25:
+            fraud_flags.append(f"Extremely high bullet count ({bullet_count} total - padding resume?)")
+        
+        # 3. GENERIC EMAIL PATTERN
+        # Extract email from text
+        email_pattern = r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'
+        emails = re.findall(email_pattern, text)
+        
+        if emails:
+            email = emails[0].lower()
+            # Check for patterns like: firstname123@, name2025@, randomnumber@
+            if re.search(r'[a-z]+\d{1,4}@', email):
+                fraud_flags.append(f"Generic email pattern ({email.split('@')[0]}@ - employer-issued?)")
+        
+        # 4. SUSPICIOUS TENURE PATTERN (H1B gaming)
+        # Look for multiple jobs with 23-25 month durations
+        # Extract all durations in months (rough heuristic)
+        duration_patterns = re.findall(r'(\d{1,2})\s*(?:months?|mos)', text_lower)
+        
+        if len(duration_patterns) >= 2:
+            # Check if multiple jobs are 23-25 months
+            visa_gaming_count = sum(1 for m in duration_patterns if 23 <= int(m) <= 25)
+            if visa_gaming_count >= 2:
+                fraud_flags.append("Multiple 23-25 month tenures (possible visa gaming pattern)")
+        
+        return fraud_flags
     
     def identify_red_flags(self, text: str, ai_probability: float, problems: int, unsexy_count: int) -> List[str]:
-        """Identify resume red flags"""
+        """Identify resume red flags - both scoring issues and fraud signals"""
         flags = []
         
+        # SCORING RED FLAGS (affect trust score)
         if ai_probability > 0.5:
+            flags.append(f"Very high AI/template probability ({ai_probability:.0%})")
+        elif ai_probability > 0.3:
             flags.append(f"High AI/template probability ({ai_probability:.0%})")
         
         if problems == 0:
@@ -528,18 +695,9 @@ class UniversalAuthenticityEngine:
         if unsexy_count == 0:
             flags.append("No evidence of handling difficult/unglamorous work")
         
-        if len(text.split()) < 200:
-            flags.append("Resume suspiciously short")
-        
-        # Check for generic phrases
-        generic_count = 0
-        generic_phrases = ["team player", "detail oriented", "fast paced", "results driven"]
-        for phrase in generic_phrases:
-            if phrase in text.lower():
-                generic_count += 1
-        
-        if generic_count >= 3:
-            flags.append(f"Generic template language ({generic_count} clichés)")
+        # FRAUD SIGNALS (recruiter red flags - not score penalties)
+        fraud_signals = self.detect_fraud_signals(text, len(text.split()))
+        flags.extend(fraud_signals)
         
         return flags
     
@@ -576,8 +734,8 @@ class UniversalAuthenticityEngine:
         stars, star_display = self.score_to_stars(raw_score)
         tier = self.score_to_tier(raw_score)
         
-        # Generate outputs
-        verdict = self.generate_verdict(raw_score, problems, unsexy_count)
+        # Generate outputs with all context including word count
+        verdict = self.generate_verdict(raw_score, problems, unsexy_count, ai_probability, career_growth, has_long_tenure, word_count)
         red_flags = self.identify_red_flags(resume_text, ai_probability, problems, unsexy_count)
         universal_questions = self.generate_universal_questions(resume_text, problems, unsexy_markers)
         industry_question = self.generate_industry_question(industry, resume_text)
