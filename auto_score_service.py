@@ -44,6 +44,20 @@ def extract_text_from_file(path: Path) -> str:
         raise ValueError(f"Could not extract text from {path.name}: {str(e)}")
 
 
+def format_ai_probability(ai_prob: float) -> str:
+    """Convert numeric AI probability to frontend-friendly string"""
+    if ai_prob >= 0.50:
+        return "Very High (50%+)"
+    elif ai_prob >= 0.30:
+        return "High (30-50%)"
+    elif ai_prob >= 0.15:
+        return "Moderate (15-30%)"
+    elif ai_prob >= 0.05:
+        return "Low (5-15%)"
+    else:
+        return "Very Low (<5%)"
+
+
 def convert_to_legacy_format(result) -> dict:
     """
     Convert new Universal format to legacy V2 format
@@ -95,7 +109,8 @@ def convert_to_legacy_format(result) -> dict:
         "star_rating": result.star_rating,
         "star_display": result.star_display,
         "industry_detected": result.industry_detected,
-        "ai_probability": result.ai_probability,
+        "ai_probability": format_ai_probability(result.ai_probability),  # FIXED: Now returns string!
+        "ai_probability_raw": result.ai_probability,  # Also include raw float for reference
         "universal_questions": result.universal_questions,
         "industry_specific_question": result.industry_specific_question
     }
@@ -109,7 +124,7 @@ def root():
         "service": "ResumeGuard V2 CALIBRATED - Universal Edition",
         "version": "2.0-calibrated-universal",
         "description": "Cross-industry resume authenticity scoring (backwards compatible)",
-        "calibration": "Starts at 30, stars remapped for recruiter psychology",
+        "calibration": "Starts at 55, career growth bonus, achievement density aware",
         "industries_supported": [
             "Technology/DevOps",
             "Sales",
